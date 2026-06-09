@@ -9,7 +9,7 @@ body{margin:0;font-family:Arial,sans-serif;background:#f4f6f8;color:#111827}
 .container{max-width:1100px;margin:auto;padding:18px}
 h1{font-size:clamp(28px,5vw,42px);margin:0 0 8px}
 .subtitle{color:#6b7280;margin:0 0 18px}
-.actions{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
+.actions{display:grid;grid-template-columns:1fr;gap:10px;margin:16px 0}
 .btn{display:inline-block;padding:12px 16px;border-radius:12px;background:#2563eb;color:white;text-decoration:none;font-weight:800;border:0;cursor:pointer;font-size:15px}
 .btn.dark{background:#111827}
 .status{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:12px;border-radius:12px;margin:16px 0;font-size:14px}
@@ -36,7 +36,7 @@ th{background:#111827;color:white}
 .available{display:inline-block;background:#dcfce7;color:#166534;border-radius:999px;padding:7px 10px;font-weight:900;font-size:14px}
 .empty{padding:18px;background:white;border-radius:18px;border:1px solid #e5e7eb;color:#6b7280}
 footer{color:#6b7280;font-size:13px;margin-top:26px}
-@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.actions{flex-direction:column}.btn{text-align:center;width:100%}}
+@media(max-width:760px){.cards{grid-template-columns:repeat(2,1fr)}.btn{text-align:center;width:100%}}
 @media(max-width:520px){.summary{grid-template-columns:1fr}.cards{grid-template-columns:1fr}}
 </style>
 </head>
@@ -54,7 +54,6 @@ footer{color:#6b7280;font-size:13px;margin-top:26px}
 
   <div class="actions">
     <button class="btn" id="copyButton">Copiar lista</button>
-    <a class="btn dark" href="index.html">Ver progreso</a>
   </div>
 
   <input id="searchInput" class="search" type="text" placeholder="Buscar por ID, selección o nombre...">
@@ -140,6 +139,6 @@ document.getElementById("searchInput").addEventListener("input",function(e){
   renderList(filtered);
 });
 </script>
-<script src="https://script.google.com/macros/s/AKfycbw_Umg50C_eKHxPPjzTcGXor4mWLUMmrIRb37np7TfoLemyXZdvFNiQjwqNrNQZ-5ebdw/exec?callback=renderPaniniData"></script>
+<script src="https://script.google.com/macros/s/AKfycbw_Umg50C_eKHxPPjzTcGXor4mWLUMmrIRb37np7TfoLemyXZdvFNiQjwqNrNQZ-5ebdw/exec?view=repe&callback=renderPaniniData"></script>
 </body>
 </html>
