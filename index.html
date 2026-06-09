@@ -1,1 +1,231 @@
-<script src="https://script.google.com/macros/s/AKfycbzef8hJsWuN-0v2shKEvtBv4VHG59oA5mJ_hiSaB4M_TZPtIQs_Nc0V6EyuRPJ4EyvyVw/exec?callback=renderPaniniData"></script>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Panini World Cup 2026 Tracker</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f4f4f4;
+      color: #222;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: auto;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 16px;
+      margin: 24px 0;
+    }
+
+    .card {
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .card span {
+      display: block;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .card strong {
+      display: block;
+      font-size: 32px;
+      margin-top: 8px;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 24px;
+      background: #ddd;
+      border-radius: 20px;
+      overflow: hidden;
+      margin: 16px 0;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: #28a745;
+      width: 0%;
+      transition: width 0.5s ease;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      margin-top: 16px;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    th {
+      background: #222;
+      color: white;
+    }
+
+    input {
+      padding: 10px;
+      width: 100%;
+      max-width: 420px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      margin: 16px 0;
+    }
+
+    .status {
+      margin-top: 16px;
+      padding: 12px;
+      background: #fff3cd;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Panini World Cup 2026 Tracker</h1>
+    <p>Datos conectados desde Google Sheets usando Apps Script.</p>
+
+    <div id="status" class="status">Cargando datos...</div>
+
+    <div class="cards">
+      <div class="card">
+        <span>Total cromos</span>
+        <strong id="total">-</strong>
+      </div>
+
+      <div class="card">
+        <span>Tengo</span>
+        <strong id="owned">-</strong>
+      </div>
+
+      <div class="card">
+        <span>Faltantes</span>
+        <strong id="missing">-</strong>
+      </div>
+
+      <div class="card">
+        <span>Duplicados disponibles</span>
+        <strong id="duplicates">-</strong>
+      </div>
+    </div>
+
+    <h2>Progreso</h2>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <p id="progressText">-</p>
+
+    <h2>Duplicados para intercambio</h2>
+    <input id="searchInput" type="text" placeholder="Buscar por ID, selección o nombre..." />
+
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Selección / Contexto</th>
+          <th>Nombre</th>
+          <th>Cantidad</th>
+          <th>Disponibles</th>
+        </tr>
+      </thead>
+      <tbody id="duplicatesTable">
+        <tr>
+          <td colspan="5">Cargando...</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    let duplicates = [];
+
+    function renderPaniniData(data) {
+      console.log("Datos recibidos:", data);
+
+      document.getElementById("status").textContent =
+        "Datos cargados correctamente. Última actualización: " + data.updatedAt;
+
+      document.getElementById("total").textContent = data.summary.total;
+      document.getElementById("owned").textContent = data.summary.owned;
+      document.getElementById("missing").textContent = data.summary.missing;
+      document.getElementById("duplicates").textContent = data.summary.totalDuplicates;
+
+      document.getElementById("progressFill").style.width = data.summary.progress + "%";
+      document.getElementById("progressText").textContent =
+        data.summary.progress + "% completado";
+
+      duplicates = data.duplicatesList || [];
+      renderDuplicates(duplicates);
+    }
+
+    function renderDuplicates(items) {
+      const tbody = document.getElementById("duplicatesTable");
+      tbody.innerHTML = "";
+
+      if (items.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5">Todavía no hay cromos duplicados.</td>
+          </tr>
+        `;
+        return;
+      }
+
+      items.forEach(item => {
+        const row = document.createElement("tr");
+
+        row.innerHTML = `
+          <td>${item.id}</td>
+          <td>${item.context || ""}</td>
+          <td>${item.name || ""}</td>
+          <td>${item.quantity}</td>
+          <td>${item.availableToTrade}</td>
+        `;
+
+        tbody.appendChild(row);
+      });
+    }
+
+    document.getElementById("searchInput").addEventListener("input", function(e) {
+      const search = e.target.value.toLowerCase();
+
+      const filtered = duplicates.filter(item => {
+        return (
+          String(item.id).toLowerCase().includes(search) ||
+          String(item.context).toLowerCase().includes(search) ||
+          String(item.name).toLowerCase().includes(search)
+        );
+      });
+
+      renderDuplicates(filtered);
+    });
+  </script>
+
+  <!-- CAMBIA ESTA URL POR TU URL REAL DE APPS SCRIPT -->
+  <script src="https://script.google.com/macros/s/AKfycbzef8hJsWuN-0v2shKEvtBv4VHG59oA5mJ_hiSaB4M_TZPtIQs_Nc0V6EyuRPJ4EyvyVw/exec?callback=renderPaniniData"></script>
+</body>
+</html>
