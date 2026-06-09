@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Panini World Cup 2026 Tracker</title>
+<title>Repetidas Panini World Cup 2026</title>
 <style>
 body{margin:0;font-family:Arial,sans-serif;background:#f4f6f8;color:#111827}
 .container{max-width:1100px;margin:auto;padding:18px}
@@ -42,41 +42,28 @@ footer{color:#6b7280;font-size:13px;margin-top:26px}
 </head>
 <body>
 <div class="container">
-  <h1>Panini World Cup 2026 Tracker</h1>
-  <p class="subtitle">Progreso de mi álbum, cromos faltantes y repetidos para intercambio.</p>
+  <h1>Mis repetidas Panini World Cup 2026</h1>
+  <p class="subtitle">Lista pública de cromos disponibles para intercambio.</p>
+
+  <div id="status" class="status">Cargando repetidas desde Google Sheets...</div>
+
+  <section class="summary">
+    <div class="card"><span>Cromos diferentes repetidos</span><strong id="duplicateItems">-</strong></div>
+    <div class="card"><span>Total disponibles</span><strong id="totalDuplicates">-</strong></div>
+  </section>
 
   <div class="actions">
-    <a class="btn" href="repe.html">Ver repetidas para intercambio</a>
-    <a class="btn dark" href="#duplicados">Ver duplicados</a>
+    <button class="btn" id="copyButton">Copiar lista</button>
+    <a class="btn dark" href="index.html">Ver progreso</a>
   </div>
 
-  <div id="status" class="status">Cargando datos desde Google Sheets...</div>
+  <input id="searchInput" class="search" type="text" placeholder="Buscar por ID, selección o nombre...">
 
-  <section class="cards">
-    <div class="card"><span>Total cromos</span><strong id="total">-</strong></div>
-    <div class="card"><span>Tengo</span><strong id="owned">-</strong></div>
-    <div class="card"><span>Faltantes</span><strong id="missing">-</strong></div>
-    <div class="card"><span>Repetidas disponibles</span><strong id="duplicates">-</strong></div>
-  </section>
+  <main id="list" class="list">
+    <div class="empty">Cargando...</div>
+  </main>
 
-  <section class="progress-card">
-    <div class="progress-head"><span>Progreso del álbum</span><span id="progressText">-</span></div>
-    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-  </section>
-
-  <section id="duplicados">
-    <h2>Duplicados</h2>
-    <p><a class="id-link" href="repe.html">Abrir lista completa para compartir</a></p>
-    <input id="searchInput" class="search" type="text" placeholder="Buscar por ID, selección o nombre...">
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>Selección / Contexto</th><th>Nombre</th><th>Cantidad</th><th>Disponibles</th></tr></thead>
-        <tbody id="duplicatesTable"><tr><td colspan="5">Cargando...</td></tr></tbody>
-      </table>
-    </div>
-  </section>
-
-  <footer>Datos leídos desde Google Sheets mediante Apps Script y JSONP.</footer>
+  <footer>Esta lista se actualiza cuando se actualiza el Google Sheet.</footer>
 </div>
 
 <script>
@@ -96,34 +83,53 @@ function escapeHTML(value){
 }
 
 function renderPaniniData(data){
-  document.getElementById("status").textContent="Datos cargados correctamente. Última actualización: "+formatDate(data.updatedAt);
-  document.getElementById("total").textContent=data.summary.total;
-  document.getElementById("owned").textContent=data.summary.owned;
-  document.getElementById("missing").textContent=data.summary.missing;
-  document.getElementById("duplicates").textContent=data.summary.totalDuplicates;
-  document.getElementById("progressFill").style.width=data.summary.progress+"%";
-  document.getElementById("progressText").textContent=data.summary.progress+"%";
   duplicates=data.duplicatesList||[];
-  renderDuplicates(duplicates);
+  document.getElementById("status").textContent="Última actualización: "+formatDate(data.updatedAt);
+  document.getElementById("duplicateItems").textContent=data.summary.duplicateItems;
+  document.getElementById("totalDuplicates").textContent=data.summary.totalDuplicates;
+  renderList(duplicates);
+  if(window.location.hash){
+    setTimeout(()=>{
+      const target=document.querySelector(window.location.hash);
+      if(target) target.scrollIntoView({behavior:"smooth",block:"start"});
+    },300);
+  }
 }
-function renderDuplicates(items){
-  const tbody=document.getElementById("duplicatesTable");
-  tbody.innerHTML="";
+function renderList(items){
+  const list=document.getElementById("list");
+  list.innerHTML="";
   if(items.length===0){
-    tbody.innerHTML="<tr><td colspan='5'>Todavía no hay cromos duplicados.</td></tr>";
+    list.innerHTML="<div class='empty'>Todavía no hay cromos repetidos disponibles.</div>";
     return;
   }
   items.forEach(item=>{
-    const row=document.createElement("tr");
-    row.innerHTML=`
-      <td><a class="id-link" href="repe.html#${encodeURIComponent(item.id)}">${escapeHTML(item.id)}</a></td>
-      <td>${escapeHTML(item.context||"")}</td>
-      <td>${escapeHTML(item.name||"")}</td>
-      <td>${item.quantity}</td>
-      <td>${item.availableToTrade}</td>`;
-    tbody.appendChild(row);
+    const card=document.createElement("article");
+    card.className="sticker-card";
+    card.id=item.id;
+    card.innerHTML=`
+      <div class="sticker-id">${escapeHTML(item.id)}</div>
+      <div class="sticker-name">${escapeHTML(item.name||"Sin nombre")}</div>
+      <div class="sticker-context">${escapeHTML(item.context||"")}</div>
+      <div class="available">Disponible: ${item.availableToTrade}</div>`;
+    list.appendChild(card);
   });
 }
+function buildCopyText(){
+  if(!duplicates.length) return "No tengo cromos repetidos disponibles por ahora.";
+  const lines=duplicates.map(item=>`${item.id} - ${item.name||""} - ${item.context||""} - Disponible: ${item.availableToTrade}`);
+  return "Mis repetidas Panini World Cup 2026:\n"+lines.join("\n");
+}
+async function copyList(){
+  const text=buildCopyText();
+  try{
+    await navigator.clipboard.writeText(text);
+    document.getElementById("copyButton").textContent="Lista copiada";
+    setTimeout(()=>document.getElementById("copyButton").textContent="Copiar lista",1800);
+  }catch(error){
+    alert(text);
+  }
+}
+document.getElementById("copyButton").addEventListener("click",copyList);
 document.getElementById("searchInput").addEventListener("input",function(e){
   const search=e.target.value.toLowerCase().trim();
   const filtered=duplicates.filter(item=>
@@ -131,7 +137,7 @@ document.getElementById("searchInput").addEventListener("input",function(e){
     String(item.context).toLowerCase().includes(search)||
     String(item.name).toLowerCase().includes(search)
   );
-  renderDuplicates(filtered);
+  renderList(filtered);
 });
 </script>
 <script src="https://script.google.com/macros/s/AKfycbw_Umg50C_eKHxPPjzTcGXor4mWLUMmrIRb37np7TfoLemyXZdvFNiQjwqNrNQZ-5ebdw/exec?callback=renderPaniniData"></script>
