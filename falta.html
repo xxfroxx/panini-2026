@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Repetidas Panini World Cup 2026</title>
+<title>Faltantes Panini World Cup 2026</title>
 <style>
 :root{
   --bg:#f4f6f8;
@@ -71,14 +71,14 @@ footer{color:var(--muted);font-size:13px;margin-top:26px}
 </head>
 <body>
 <div class="container-narrow">
-  <h1>Mis repetidas Panini World Cup 2026</h1>
-  <p class="subtitle">Lista pública de cromos disponibles para intercambio.</p>
+  <h1>Mis faltantes Panini World Cup 2026</h1>
+  <p class="subtitle">Lista pública de cromos que todavía estoy buscando.</p>
 
-  <div id="status" class="status">Cargando repetidas desde Google Sheets...</div>
+  <div id="status" class="status">Cargando faltantes desde Google Sheets...</div>
 
   <section class="summary">
-    <div class="card"><span>Cromos diferentes repetidos</span><strong id="duplicateItems">-</strong></div>
-    <div class="card"><span>Total disponibles</span><strong id="totalDuplicates">-</strong></div>
+    <div class="card"><span>Total faltantes</span><strong id="missingTotal">-</strong></div>
+    <div class="card"><span>Lista</span><strong id="visibleTotal">-</strong></div>
   </section>
 
   <div class="actions one">
@@ -95,7 +95,7 @@ footer{color:var(--muted);font-size:13px;margin-top:26px}
 </div>
 
 <script>
-let duplicates=[];
+let missingItems=[];
 
 function formatDate(value){
   if(!value)return "-";
@@ -111,23 +111,18 @@ function escapeHTML(value){
 }
 
 function renderPaniniData(data){
-  duplicates=data.duplicatesList||[];
+  missingItems=data.missingList||[];
   document.getElementById("status").textContent="Última actualización: "+formatDate(data.updatedAt);
-  document.getElementById("duplicateItems").textContent=data.summary.duplicateItems;
-  document.getElementById("totalDuplicates").textContent=data.summary.totalDuplicates;
-  renderList(duplicates);
-  if(window.location.hash){
-    setTimeout(()=>{
-      const target=document.querySelector(window.location.hash);
-      if(target) target.scrollIntoView({behavior:"smooth",block:"start"});
-    },300);
-  }
+  document.getElementById("missingTotal").textContent=data.summary.missing;
+  document.getElementById("visibleTotal").textContent=missingItems.length;
+  renderList(missingItems);
 }
 function renderList(items){
   const list=document.getElementById("list");
   list.innerHTML="";
+  document.getElementById("visibleTotal").textContent=items.length;
   if(items.length===0){
-    list.innerHTML="<div class='empty'>Todavía no hay cromos repetidos disponibles.</div>";
+    list.innerHTML="<div class='empty'>No hay cromos faltantes en esta vista.</div>";
     return;
   }
   items.forEach(item=>{
@@ -138,14 +133,14 @@ function renderList(items){
       <div class="sticker-id">${escapeHTML(item.id)}</div>
       <div class="sticker-name">${escapeHTML(item.name||"Sin nombre")}</div>
       <div class="sticker-context">${escapeHTML(item.context||"")}</div>
-      <div class="badge available">Disponible: ${item.availableToTrade}</div>`;
+      <div class="badge missing">Falta</div>`;
     list.appendChild(card);
   });
 }
 function buildCopyText(){
-  if(!duplicates.length)return "No tengo cromos repetidos disponibles por ahora.";
-  const lines=duplicates.map(item=>`${item.id} - ${item.name||""} - ${item.context||""} - Disponible: ${item.availableToTrade}`);
-  return "Mis repetidas Panini World Cup 2026:\n"+lines.join("\n");
+  if(!missingItems.length)return "No tengo cromos faltantes por ahora.";
+  const lines=missingItems.map(item=>`${item.id} - ${item.name||""} - ${item.context||""}`);
+  return "Mis faltantes Panini World Cup 2026:\n"+lines.join("\n");
 }
 async function copyList(){
   const text=buildCopyText();
@@ -160,7 +155,7 @@ async function copyList(){
 document.getElementById("copyButton").addEventListener("click",copyList);
 document.getElementById("searchInput").addEventListener("input",function(e){
   const search=e.target.value.toLowerCase().trim();
-  const filtered=duplicates.filter(item=>
+  const filtered=missingItems.filter(item=>
     String(item.id).toLowerCase().includes(search)||
     String(item.context).toLowerCase().includes(search)||
     String(item.name).toLowerCase().includes(search)
@@ -178,7 +173,7 @@ document.getElementById("searchInput").addEventListener("input",function(e){
     document.body.appendChild(script);
   }
 
-  loadPaniniData("repe");
+  loadPaniniData("missing");
 </script>
 </body>
 </html>

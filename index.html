@@ -134,6 +134,17 @@ document.getElementById("searchInput").addEventListener("input",function(e){
   renderDuplicates(filtered);
 });
 </script>
-<script src="https://script.google.com/macros/s/AKfycbw_Umg50C_eKHxPPjzTcGXor4mWLUMmrIRb37np7TfoLemyXZdvFNiQjwqNrNQZ-5ebdw/exec?view=dashboard&callback=renderPaniniData"></script>
+<script src="config.js"></script>
+<script>
+  function loadPaniniData(view) {
+    const script = document.createElement("script");
+    script.src = window.PANINI_CONFIG.APPS_SCRIPT_URL
+      + "?view=" + encodeURIComponent(view)
+      + "&callback=renderPaniniData";
+    document.body.appendChild(script);
+  }
+
+  loadPaniniData("dashboard");
+</script>
 </body>
 </html>
