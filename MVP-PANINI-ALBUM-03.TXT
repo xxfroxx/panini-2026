@@ -1,0 +1,399 @@
+MVP ITERACIÓN PANINI 2026 — ANDROID 2: LISTA TEMPORAL / MODO LOTE MANUAL
+
+Contexto:
+Ya está funcionando el primer milestone.
+
+Estado actual:
+
+* Android app permite escribir un ID manualmente.
+* App envía el ID a Apps Script.
+* Apps Script actualiza solo la columna CANTIDAD.
+* Apps Script NO toca la columna TIENE.
+* Si el cromo ya existe, Android pide confirmación para sumar +1.
+* Web se actualiza correctamente usando CANTIDAD.
+
+Arquitectura:
+Android App → Apps Script doPost → Google Sheets → GitHub Pages
+
+IMPORTANTE:
+Esta iteración todavía NO incluye OCR.
+Esta iteración todavía NO incluye cámara.
+Esta iteración todavía NO incluye ML Kit.
+Esta iteración es para mejorar el flujo manual y preparar el futuro escaneo.
+
+---
+
+## OBJETIVO GENERAL
+
+Agregar un modo de “lista temporal” en Android.
+
+El usuario debe poder:
+
+1. Escribir un ID manualmente.
+2. Pulsar “Añadir a lista”.
+3. El ID se agrega a una lista temporal en pantalla.
+4. Puede seguir agregando más IDs.
+5. Puede revisar la lista antes de enviarla.
+6. Puede eliminar un ID de la lista si se equivocó.
+7. Puede limpiar toda la lista.
+8. Puede pulsar “Guardar lista”.
+9. La app envía los IDs al backend uno por uno usando el endpoint actual addSticker.
+10. Si algún ID ya existe, la app debe pedir confirmación para ese ID.
+11. Al final mostrar un resumen:
+
+* agregados
+* incrementados
+* no encontrados
+* cancelados
+* errores
+
+No crear todavía endpoint bulk en Apps Script.
+Usar el endpoint actual que ya funciona.
+
+---
+
+## PARTE 1 — UI ANDROID
+
+Actualizar la pantalla principal.
+
+Debe tener:
+
+Título:
+Panini 2026 Tracker
+
+Campo:
+ID del cromo
+
+Placeholder:
+Ej: COL05, MEX01, FWC9
+
+Botones:
+
+* Añadir a lista
+* Guardar lista
+* Limpiar lista
+
+Lista temporal visible:
+Mostrar cada ID agregado en una card o fila.
+
+Cada fila debe tener:
+
+* ID normalizado
+* botón eliminar
+
+Ejemplo:
+
+COL05        Eliminar
+MEX01        Eliminar
+FWC9         Eliminar
+
+Contador:
+“3 cromos en lista”
+
+Estado:
+
+* Lista vacía
+* Guardando...
+* Resultado final
+
+---
+
+## PARTE 2 — NORMALIZACIÓN EN ANDROID
+
+Antes de agregar un ID a la lista temporal, normalizarlo en Android.
+
+Crear función:
+
+fun normalizeStickerId(input: String): String
+
+Reglas:
+
+* trim()
+* uppercase()
+* quitar espacios
+* quitar guiones
+* mantener 00 como 00
+* mantener FWC9 como FWC9
+* no convertir FWC9 a FWC09
+
+Casos:
+"col05" → "COL05"
+"COL 05" → "COL05"
+"col-05" → "COL05"
+"fwc9" → "FWC9"
+"fwc 10" → "FWC10"
+"00" → "00"
+
+Si después de normalizar queda vacío:
+mostrar error:
+“Escribe un ID válido.”
+
+---
+
+## PARTE 3 — LISTA TEMPORAL
+
+Mantener en memoria una lista mutable de IDs.
+
+Puede ser:
+
+mutableStateListOf<String>()
+
+Reglas:
+
+* Permitir IDs repetidos en la lista temporal.
+  Motivo: si escaneo o escribo el mismo cromo dos veces, puede significar que tengo dos unidades.
+* Mostrar los repetidos claramente.
+* No bloquear duplicados dentro de la lista.
+
+Ejemplo válido:
+COL05
+COL05
+MEX01
+
+Al guardar:
+
+* El primer COL05 puede agregar o detectar existente.
+* El segundo COL05 puede incrementar.
+
+---
+
+## PARTE 4 — GUARDAR LISTA
+
+Cuando el usuario pulsa “Guardar lista”:
+
+1. Si la lista está vacía:
+   Mostrar:
+   “La lista está vacía.”
+
+2. Si la lista tiene elementos:
+   Desactivar botones mientras se guarda.
+   Procesar IDs en orden, uno por uno.
+
+Para cada ID:
+
+* llamar al backend con confirmDuplicate=false.
+
+* si responde added:
+  contar como agregado.
+
+* si responde incremented:
+  contar como incrementado.
+
+* si responde not_found:
+  contar como no encontrado.
+
+* si responde already_exists:
+  pausar el proceso y mostrar diálogo:
+  “El cromo COL05 ya existe. ¿Quieres sumar +1?”
+
+  Si usuario confirma:
+  llamar otra vez con confirmDuplicate=true.
+  si ok, contar como incrementado.
+
+  Si usuario cancela:
+  contar como cancelado.
+  continuar con el siguiente ID.
+
+* si hay error de red:
+  contar como error.
+  continuar o detener.
+  Para este MVP, continuar con el siguiente ID y mostrarlo en resumen.
+
+---
+
+## PARTE 5 — DIÁLOGO DE CONFIRMACIÓN
+
+Cuando backend devuelve already_exists:
+
+Mostrar AlertDialog:
+
+Título:
+Cromo ya existe
+
+Texto:
+El cromo COL05 ya está en tu colección. ¿Quieres sumar +1?
+
+Botones:
+
+* Cancelar
+* Sumar +1
+
+Si Cancelar:
+
+* no llamar al backend otra vez para ese ID
+* pasar al siguiente ID
+
+Si Sumar +1:
+
+* llamar addSticker(id, confirmDuplicate = true)
+
+---
+
+## PARTE 6 — RESUMEN FINAL
+
+Al terminar de procesar toda la lista, mostrar resumen:
+
+Ejemplo:
+
+Proceso terminado:
+Agregados: 4
+Incrementados: 2
+No encontrados: 1
+Cancelados: 1
+Errores: 0
+
+También mostrar detalle opcional:
+
+Agregados:
+
+* COL05
+* MEX01
+
+Incrementados:
+
+* FWC9
+
+No encontrados:
+
+* ZZZ99
+
+Cancelados:
+
+* COL05
+
+Errores:
+
+* ABC01
+
+Después de terminar:
+
+* NO limpiar automáticamente la lista si hubo errores o no encontrados.
+* Si todo fue exitoso o cancelado voluntariamente, se puede limpiar la lista.
+* Para este MVP, mejor mostrar botón:
+  “Limpiar lista”
+  y que el usuario decida.
+
+---
+
+## PARTE 7 — BACKEND APPS SCRIPT
+
+No cambiar backend salvo que sea necesario.
+
+Mantener endpoint actual:
+
+POST TU_URL_APPS_SCRIPT/exec
+
+Body:
+
+{
+"secret": "...",
+"action": "addSticker",
+"stickerId": "COL05",
+"confirmDuplicate": false
+}
+
+Confirmación:
+
+{
+"secret": "...",
+"action": "addSticker",
+"stickerId": "COL05",
+"confirmDuplicate": true
+}
+
+IMPORTANTE:
+Backend solo debe actualizar CANTIDAD.
+No tocar TIENE.
+
+---
+
+## PARTE 8 — CONFIG
+
+Mantener configuración actual:
+
+* APPS_SCRIPT_URL desde local.properties / BuildConfig
+* APP_SECRET desde local.properties / BuildConfig
+
+No hardcodear secrets en el repo.
+
+local.properties NO se sube a GitHub.
+
+---
+
+## PARTE 9 — VALIDACIONES MANUALES
+
+Probar:
+
+Caso 1:
+Lista:
+COL05
+MEX01
+FWC9
+
+Resultado:
+Se procesan los tres.
+
+Caso 2:
+Lista:
+COL05
+COL05
+
+Si COL05 no existía:
+
+* primera llamada: added
+* segunda llamada: already_exists → confirmar → incremented
+
+Resultado final:
+CANTIDAD sube a 2.
+
+Caso 3:
+Lista:
+ZZZ99
+
+Resultado:
+not_found
+
+Caso 4:
+Lista:
+col 05
+fwc 10
+
+Resultado:
+normaliza a:
+COL05
+FWC10
+
+Caso 5:
+Cancelar duplicado:
+Si backend responde already_exists y usuario pulsa Cancelar:
+
+* no incrementa
+* continúa con siguiente ID
+
+---
+
+## PARTE 10 — RESTRICCIONES
+
+No agregar cámara.
+No agregar OCR.
+No agregar ML Kit.
+No crear endpoint bulk todavía.
+No tocar web.
+No tocar estructura del Google Sheet.
+No tocar columna TIENE.
+No hardcodear secrets.
+Mantener el cambio pequeño y seguro.
+
+---
+
+## RESULTADO ESPERADO
+
+Al final de esta iteración, la app debe permitir trabajar más rápido:
+
+Antes:
+Escribir un ID → guardar → esperar → repetir.
+
+Después:
+Escribir varios IDs → revisar lista → guardar todos.
+
+Esta lógica será la base para la siguiente iteración con cámara/OCR.

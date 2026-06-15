@@ -1,0 +1,4 @@
+# No pongas secretos reales aqui.
+sdk.dir=/home/wolframio/Android/Sdk
+APPS_SCRIPT_URL=https://script.google.com/macros/s/REEMPLAZA_DEPLOYMENT_ID/exec
+APP_SECRET=REEMPLAZA_SECRET_LOCAL

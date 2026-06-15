@@ -1,0 +1,817 @@
+MVP ITERACIÓN PANINI 2026 — ANDROID 1 + APPS SCRIPT WRITE
+
+Contexto:
+Tengo una web estática de seguimiento del álbum Panini World Cup 2026.
+
+Arquitectura actual:
+Google Sheets → Apps Script → JSONP → GitHub Pages
+
+Ya existen estas páginas:
+
+* index.html → dashboard
+* repe.html → repetidas
+* falta.html → faltantes
+* config.js → URL central de Apps Script
+
+Ahora quiero crear el primer MVP Android, pero por partes.
+
+IMPORTANTE:
+Esta iteración NO incluye OCR.
+Esta iteración NO incluye cámara.
+Esta iteración NO incluye escaneo automático.
+Solo entrada manual de ID desde Android.
+
+---
+
+## OBJETIVO GENERAL
+
+Crear una app Android nativa simple en Kotlin + Jetpack Compose que permita:
+
+1. Escribir manualmente el ID de un cromo.
+2. Pulsar botón “Agregar”.
+3. Enviar el ID a Apps Script mediante POST.
+4. Apps Script busca ese ID en el Google Sheet.
+5. Si el cromo no existe en la colección, suma la cantidad de 0 a 1.
+6. Si el cromo ya existe, la app muestra confirmación:
+   “Este cromo ya existe. ¿Quieres sumar +1?”
+7. Si el usuario confirma, la app vuelve a llamar al backend con confirmDuplicate=true.
+8. Apps Script incrementa CANTIDAD en +1.
+9. Apps Script limpia cache para que index.html, repe.html y falta.html se actualicen.
+
+---
+
+## PARTE 1 — BACKEND APPS SCRIPT
+
+Agregar soporte para escritura con doPost(e).
+
+El Apps Script actual ya tiene doGet(e) para vistas:
+
+* dashboard
+* repe
+* missing
+
+No romper doGet.
+
+Agregar doPost(e) con esta estructura de request:
+
+{
+"secret": "APP_SECRET",
+"action": "addSticker",
+"stickerId": "COL05",
+"confirmDuplicate": false
+}
+
+Respuesta esperada si el cromo no existe todavía en la colección:
+
+{
+"ok": true,
+"status": "added",
+"message": "Cromo agregado correctamente.",
+"sticker": {
+"id": "COL05",
+"name": "...",
+"context": "...",
+"oldQuantity": 0,
+"newQuantity": 1
+}
+}
+
+Respuesta esperada si el cromo ya existe y falta confirmación:
+
+{
+"ok": false,
+"status": "already_exists",
+"requiresConfirmation": true,
+"message": "Este cromo ya existe. ¿Quieres sumar +1?",
+"sticker": {
+"id": "COL05",
+"name": "...",
+"context": "...",
+"oldQuantity": 1,
+"newQuantity": 1
+}
+}
+
+Respuesta esperada si se confirma duplicado:
+
+{
+"ok": true,
+"status": "incremented",
+"message": "Cantidad actualizada correctamente.",
+"sticker": {
+"id": "COL05",
+"name": "...",
+"context": "...",
+"oldQuantity": 1,
+"newQuantity": 2
+}
+}
+
+Respuesta esperada si no existe el ID en el master/base sheets:
+
+{
+"ok": false,
+"status": "not_found",
+"message": "No se encontró el ID COL05."
+}
+
+Respuesta esperada si secret es incorrecto:
+
+{
+"ok": false,
+"status": "unauthorized",
+"message": "No autorizado."
+}
+
+---
+
+## PARTE 2 — SEGURIDAD SIMPLE
+
+Usar un APP_SECRET guardado en Apps Script PropertiesService.
+
+No hardcodear el secret directamente dentro de doPost.
+
+Usar:
+
+PropertiesService.getScriptProperties().getProperty("APP_SECRET")
+
+El request del Android debe enviar ese secret.
+
+Para configurar en Apps Script:
+Project Settings → Script Properties → Add property
+
+Nombre:
+APP_SECRET
+
+Valor:
+un string largo manual, por ejemplo:
+panini-2026-mi-secret-local
+
+Nota:
+Esto es suficiente para MVP personal.
+Más adelante se puede mejorar.
+
+---
+
+## PARTE 3 — BÚSQUEDA DEL CROMO
+
+La función addSticker debe buscar el stickerId en las hojas base del álbum.
+
+No buscar en:
+
+* INSTRUCCIONES
+* DASHBOARD
+* MASTER
+* FALTANTES
+* INTERCAMBIO
+
+Sí buscar en hojas del álbum, por ejemplo:
+
+* 01_PANINI
+* 02_GRUPO_A
+* 03_GRUPO_B
+* ...
+* 08_STICKERS_COCA_COLA
+* 15_FIFA_WORLD_CUP_CHAMPIONS
+
+El ID ya debe estar limpio en el Sheet.
+
+Ejemplos válidos:
+
+* COL05
+* MEX01
+* UZB12
+* FWC9
+* FWC10
+* 00
+
+IMPORTANTE:
+No cambiar la estructura del Google Sheet.
+No cambiar IDs.
+No cambiar columnas.
+
+La columna principal para sumar es:
+
+CANTIDAD
+
+El backend debe:
+
+1. Encontrar la fila donde ID == stickerId normalizado.
+2. Leer CANTIDAD.
+3. Si CANTIDAD está vacío o no es número, tratar como 0.
+4. Si CANTIDAD === 0, poner 1.
+5. Si CANTIDAD > 0 y confirmDuplicate !== true, devolver already_exists.
+6. Si CANTIDAD > 0 y confirmDuplicate === true, sumar +1.
+
+Si existe columna TIENE, actualizarla de forma coherente:
+
+* Si newQuantity > 0, TIENE = 1.
+* Si newQuantity === 0, TIENE = 0.
+
+---
+
+## PARTE 4 — NORMALIZACIÓN DE ID
+
+Crear función normalizeStickerId(input).
+
+Debe:
+
+* trim()
+* uppercase()
+* quitar espacios internos innecesarios
+* convertir guiones bajos o espacios a nada cuando aplique
+* mantener IDs especiales como FWC9, FWC10, 00
+
+Casos:
+"col05" → "COL05"
+"COL 05" → "COL05"
+"col-05" → "COL05"
+"fwc9" → "FWC9"
+"fwc 10" → "FWC10"
+"00" → "00"
+
+No convertir FWC9 a FWC09.
+No convertir 00 a 0.
+
+---
+
+## PARTE 5 — LIMPIAR CACHE
+
+Después de cualquier update exitoso, limpiar cache de Apps Script.
+
+Si actualmente existen claves como:
+
+* panini_dashboard
+* panini_repe
+* panini_missing
+* panini_full
+
+Borrarlas después de update.
+
+Ejemplo:
+
+function clearPaniniCache() {
+const cache = CacheService.getScriptCache();
+cache.remove("panini_dashboard");
+cache.remove("panini_repe");
+cache.remove("panini_missing");
+cache.remove("panini_full");
+}
+
+Usar esta función después de added o incremented.
+
+---
+
+## PARTE 6 — ANDROID APP
+
+Crear proyecto Android nativo:
+
+* Kotlin
+* Jetpack Compose
+* Minimum SDK: 26 o superior
+* Nombre sugerido: PaniniTracker
+* Package sugerido: com.panini.tracker
+
+Pantalla única para MVP:
+
+Elementos:
+
+1. Título:
+   Panini 2026 Tracker
+
+2. Campo de texto:
+   “ID del cromo”
+   Placeholder:
+   “Ej: COL05, MEX01, FWC9”
+
+3. Botón:
+   Agregar
+
+4. Estado:
+
+   * Cargando...
+   * Cromo agregado correctamente
+   * Este cromo ya existe
+   * Cantidad actualizada
+   * No encontrado
+   * Error de conexión
+
+5. Si backend responde already_exists:
+   Mostrar AlertDialog:
+   Título:
+   Cromo ya existe
+
+   Texto:
+   Este cromo ya está en tu colección. ¿Quieres sumar +1?
+
+   Botones:
+   Cancelar
+   Sumar +1
+
+Si usuario pulsa Sumar +1:
+Repetir llamada con:
+confirmDuplicate=true
+
+---
+
+## PARTE 7 — CONFIG ANDROID
+
+No hardcodear el APP_SECRET real en código fuente Android.
+
+Usar `android/local.properties` para valores locales no versionados:
+
+sdk.dir=/home/wolframio/Android/Sdk
+APP_SECRET=REEMPLAZA_SECRET_LOCAL
+
+`android/local.properties` debe estar en `.gitignore`.
+
+Crear `android/local.properties.example` sin valores reales:
+
+sdk.dir=/home/wolframio/Android/Sdk
+APP_SECRET=REEMPLAZA_SECRET_LOCAL
+
+Gradle debe leer `APP_SECRET` desde `local.properties` y exponerlo como:
+
+BuildConfig.APP_SECRET
+
+Crear un objeto de configuración simple en Kotlin que no contenga el secret real:
+
+object AppConfig {
+const val APPS_SCRIPT_URL = "https://script.google.com/macros/s/REEMPLAZA_ESTE_ID/exec"
+val APP_SECRET = BuildConfig.APP_SECRET
+}
+
+Nota:
+Esto evita publicar el secret en GitHub.
+Para un MVP personal es suficiente.
+El secret seguirá dentro del APK compilado, por lo que no debe considerarse seguridad fuerte.
+Si un secret real se sube a un repo público, cambiarlo también en Apps Script.
+
+---
+
+## PARTE 8 — HTTP CLIENT
+
+Usar OkHttp o Retrofit.
+Para MVP, OkHttp es suficiente.
+
+Crear función:
+
+suspend fun addSticker(
+stickerId: String,
+confirmDuplicate: Boolean = false
+): AddStickerResponse
+
+Debe enviar POST JSON a Apps Script.
+
+Body:
+
+{
+"secret": AppConfig.APP_SECRET,
+"action": "addSticker",
+"stickerId": stickerId,
+"confirmDuplicate": confirmDuplicate
+}
+
+Headers:
+Content-Type: application/json
+
+Parsear respuesta JSON.
+
+Crear data classes:
+
+data class AddStickerResponse(
+val ok: Boolean,
+val status: String,
+val message: String,
+val requiresConfirmation: Boolean? = null,
+val sticker: StickerResponse? = null
+)
+
+data class StickerResponse(
+val id: String,
+val name: String?,
+val context: String?,
+val oldQuantity: Int?,
+val newQuantity: Int?
+)
+
+---
+
+## PARTE 9 — UX SIMPLE
+
+Después de agregar correctamente:
+
+* Limpiar el TextField.
+* Mostrar mensaje con ID y nueva cantidad.
+
+Ejemplo:
+“COL05 agregado. Nueva cantidad: 1”
+
+Si incrementado:
+“COL05 actualizado. Nueva cantidad: 2”
+
+Si no encontrado:
+“No se encontró COL05 en el álbum.”
+
+Si error:
+“Error conectando con Apps Script.”
+
+---
+
+## PARTE 10 — TESTS MANUALES
+
+Probar con IDs reales del Google Sheet:
+
+Caso 1:
+ID con CANTIDAD = 0
+Resultado esperado:
+added, cantidad pasa a 1
+
+Caso 2:
+Mismo ID otra vez
+Resultado esperado:
+already_exists, aparece diálogo
+
+Caso 3:
+Confirmar +1
+Resultado esperado:
+incremented, cantidad pasa a 2
+
+Caso 4:
+ID inexistente
+Ejemplo:
+ZZZ99
+Resultado esperado:
+not_found
+
+Caso 5:
+ID especial:
+FWC9
+Resultado esperado:
+debe funcionar
+
+Caso 6:
+ID con minúsculas o espacios:
+col 05
+Resultado esperado:
+normaliza a COL05
+
+---
+
+## PARTE 11 — VALIDACIÓN FINAL
+
+Después de actualizar desde Android:
+
+1. Abrir dashboard:
+   https://xxfroxx.github.io/panini-2026/
+
+Debe cambiar “Tengo” y “Faltantes”.
+
+2. Abrir repetidas:
+   https://xxfroxx.github.io/panini-2026/repe.html
+
+Si cantidad pasa a 2, debe aparecer como repetida disponible.
+
+3. Abrir faltantes:
+   https://xxfroxx.github.io/panini-2026/falta.html
+
+Si cantidad pasa de 0 a 1, debe desaparecer de faltantes.
+
+---
+
+## RESTRICCIONES
+
+No agregar OCR todavía.
+No agregar CameraX todavía.
+No agregar scanner todavía.
+No hacer bulk scan todavía.
+No cambiar GitHub Pages.
+No cambiar la estructura del Sheet.
+No tocar el diseño web salvo que sea necesario.
+No romper JSONP existente.
+Mantener el MVP simple.
+
+MVP ITERACIÓN PANINI 2026 — WEB + FALTANTES + CONFIG CENTRAL
+
+Contexto del proyecto:
+Tengo una web estática en GitHub Pages para seguir mi álbum Panini World Cup 2026.
+
+Arquitectura actual:
+Google Sheets → Apps Script → JSONP → GitHub Pages
+
+Repositorio:
+panini-2026
+
+Páginas actuales / deseadas:
+
+* index.html → dashboard principal
+* repe.html → lista pública de cromos repetidos para intercambio
+* falta.html → nueva lista pública de cromos faltantes
+* config.js → archivo central para guardar la URL de Apps Script
+
+IMPORTANTE:
+Ir por partes. No tocar todavía la app Android. Esta iteración es solo web + Apps Script.
+
+OBJETIVO DE ESTA ITERACIÓN:
+
+1. Agregar soporte backend para faltantes con `view=missing`.
+2. Crear o corregir la página `falta.html`.
+3. Centralizar la URL de Apps Script en `config.js`.
+4. Evitar que la URL de Apps Script esté repetida en `index.html`, `repe.html` y `falta.html`.
+5. Mantener `repe.html` funcionando como hasta ahora.
+6. Mantener `index.html` funcionando como dashboard principal.
+
+---
+
+## PARTE 1 — APPS SCRIPT
+
+En Apps Script ya existe una función `doGet(e)` que recibe parámetros como:
+
+* `view=repe`
+* `view=dashboard`
+* `callback=renderPaniniData`
+
+Agregar una nueva vista:
+
+* `view=missing`
+
+La URL de prueba debe funcionar así:
+
+TU_URL_APPS_SCRIPT/exec?view=missing
+
+Debe devolver un JSON con esta estructura:
+
+{
+"updatedAt": "...",
+"summary": {
+"missing": 990
+},
+"missingList": [...]
+}
+
+Y cuando se use desde GitHub Pages con JSONP debe funcionar así:
+
+TU_URL_APPS_SCRIPT/exec?view=missing&callback=renderPaniniData
+
+Dentro de la función que construye los datos, asegurar que exista:
+
+const missingList = stickers.filter(s => s.missing);
+const missing = stickers.filter(s => s.missing).length;
+
+Luego agregar este bloque antes de `view === 'dashboard'`:
+
+if (view === 'missing') {
+return {
+updatedAt: new Date().toISOString(),
+summary: {
+missing
+},
+missingList
+};
+}
+
+No romper las vistas existentes:
+
+if (view === 'repe') {
+return {
+updatedAt: new Date().toISOString(),
+summary: {
+duplicateItems,
+totalDuplicates
+},
+duplicatesList
+};
+}
+
+if (view === 'dashboard') {
+return {
+updatedAt: new Date().toISOString(),
+summary,
+duplicatesList
+};
+}
+
+Después de cambiar Apps Script recordar:
+
+1. Guardar.
+2. Implementar → Gestionar implementaciones → Editar.
+3. Versión → Nueva versión.
+4. Implementar.
+5. Probar `?view=missing`.
+
+---
+
+## PARTE 2 — CONFIG CENTRAL
+
+Crear o actualizar archivo:
+
+config.js
+
+Contenido:
+
+window.PANINI_CONFIG = {
+APPS_SCRIPT_URL: "https://script.google.com/macros/s/REEMPLAZA_ESTE_ID/exec"
+};
+
+Nota:
+
+* La URL no queda oculta. Sigue siendo pública porque el navegador la necesita.
+* El objetivo de `config.js` es mantenimiento: cambiar la URL en un solo lugar.
+
+---
+
+## PARTE 3 — FUNCIÓN PARA CARGAR JSONP
+
+En cada HTML debe existir una función que use `config.js` para cargar los datos desde Apps Script.
+
+Puede ir dentro del script principal de cada HTML:
+
+function loadPaniniData(view) {
+if (!window.PANINI_CONFIG || !window.PANINI_CONFIG.APPS_SCRIPT_URL) {
+const status = document.getElementById("status");
+if (status) {
+status.textContent = "Error: falta configurar APPS_SCRIPT_URL en config.js";
+}
+return;
+}
+
+const script = document.createElement("script");
+script.src = window.PANINI_CONFIG.APPS_SCRIPT_URL
++ "?view=" + encodeURIComponent(view)
++ "&callback=renderPaniniData";
+document.body.appendChild(script);
+}
+
+Al final de cada HTML debe quedar así:
+
+Para index.html:
+
+Para repe.html:
+
+Para falta.html:
+
+IMPORTANTE:
+No basta solo con:
+
+Porque `config.js` solo guarda la URL. También hay que ejecutar `loadPaniniData(...)`.
+
+---
+
+## PARTE 4 — falta.html
+
+Crear o corregir `falta.html`.
+
+Objetivo:
+Mostrar una lista pública de cromos que faltan.
+
+Título:
+Mis faltantes Panini World Cup 2026
+
+Subtítulo:
+Lista pública de cromos que todavía estoy buscando.
+
+Debe mostrar:
+
+* Estado de carga / última actualización.
+* Total faltantes.
+* Total visible después de filtros.
+* Botón “Copiar lista”.
+* Buscador.
+* Cards mobile friendly.
+
+Cada card debe mostrar:
+
+* ID del cromo.
+* Nombre o descripción.
+* Selección / contexto.
+* Badge: “Falta”.
+
+Ejemplo visual de card:
+
+COL05
+Nombre del jugador
+Colombia
+Falta
+
+Para especiales:
+
+FWC9
+ITALIA 1934
+SECCION 4
+Falta
+
+La página debe usar:
+
+loadPaniniData("missing");
+
+Y debe consumir:
+
+data.missingList
+
+Cada item puede tener campos como:
+
+item.id
+item.name
+item.context
+item.quantity
+item.missing
+
+El botón “Copiar lista” debe copiar un texto así:
+
+Mis faltantes Panini World Cup 2026:
+COL05 - Nombre - Colombia
+UZB12 - Nombre - Uzbekistán
+FWC9 - ITALIA 1934 - SECCION 4
+
+---
+
+## PARTE 5 — repe.html
+
+Mantener `repe.html` funcionando.
+
+Debe usar:
+
+loadPaniniData("repe");
+
+Debe consumir:
+
+data.duplicatesList
+
+Debe mantener:
+
+* Botón “Copiar lista”.
+* Buscador.
+* Cards mobile friendly.
+* Sin botón extra innecesario de “Ver progreso”.
+
+Al final debe tener:
+
+---
+
+## PARTE 6 — index.html
+
+Actualizar dashboard principal para tener botones:
+
+* Ver repetidas → repe.html
+* Ver faltantes → falta.html
+
+Debe usar:
+
+loadPaniniData("dashboard");
+
+Debe seguir mostrando:
+
+* Total cromos.
+* Tengo.
+* Faltantes.
+* Repetidas disponibles.
+* Barra de progreso.
+* Tabla/resumen de duplicados.
+
+Al final debe tener:
+
+---
+
+## PARTE 7 — VALIDACIONES
+
+Validar después de implementar:
+
+1. Apps Script directo:
+   TU_URL_APPS_SCRIPT/exec?view=missing
+
+Debe mostrar JSON con `missingList`.
+
+2. Dashboard:
+   https://xxfroxx.github.io/panini-2026/
+
+Debe cargar datos.
+
+3. Repetidas:
+   https://xxfroxx.github.io/panini-2026/repe.html
+
+Debe cargar repetidas.
+
+4. Faltantes:
+   https://xxfroxx.github.io/panini-2026/falta.html
+
+Debe cargar faltantes.
+
+5. Verificar en consola del navegador que no haya:
+
+* PANINI_CONFIG undefined
+* renderPaniniData is not defined
+* callback error
+* 404 de config.js
+
+---
+
+## PARTE 8 — RESTRICCIONES
+
+No tocar todavía Android.
+No agregar framework.
+No agregar backend nuevo.
+No cambiar la estructura del Google Sheet.
+No cambiar los IDs ya corregidos, especialmente FWC9, FWC10, etc.
+No romper JSONP.
+No eliminar cache actual, salvo que haya que limpiar cache después de updates.
+Mantener todo simple y compatible con GitHub Pages.
