@@ -40,4 +40,10 @@ Antes de compilar:
 3. En `android/local.properties`, define `APP_SECRET` con el mismo valor configurado en Apps Script.
 4. No subas `android/local.properties` al repo; esta ignorado por Git.
 
-La app es Kotlin + Jetpack Compose, minimo SDK 26, y permite entrada manual con lista temporal para guardar varios IDs. No incluye OCR, camara ni escaneo automatico.
+La app es Kotlin + Jetpack Compose, minimo SDK 26, y permite:
+
+- entrada manual con lista temporal para guardar varios IDs
+- escaneo con camara y OCR para añadir IDs a la lista temporal
+- revision manual de la lista antes de guardar
+
+El escaneo no guarda automaticamente en Google Sheets. El backend no cambia para OCR.

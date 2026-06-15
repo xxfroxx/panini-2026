@@ -1,0 +1,496 @@
+MVP ITERACIÓN PANINI 2026 — WEB 4: COPIAR FALTANTES EN LISTA CORTA Y LISTA EXTENDIDA
+
+Contexto:
+Ya funcionan los milestones anteriores:
+
+* Web dashboard.
+* Página de repetidas.
+* Página de faltantes.
+* Android manual.
+* Android lista temporal.
+* Android OCR.
+* Apps Script actualiza solo CANTIDAD.
+* La columna TIENE no se toca.
+* La web calcula faltantes desde CANTIDAD.
+
+Arquitectura:
+Google Sheets → Apps Script → JSONP → GitHub Pages
+
+Esta iteración es solo web.
+
+IMPORTANTE:
+No tocar Android.
+No tocar OCR.
+No tocar Apps Script salvo que falte algún campo necesario en `missingList`.
+No cambiar estructura del Google Sheet.
+No tocar columna TIENE.
+
+---
+
+## OBJETIVO GENERAL
+
+Mejorar `falta.html` para que el botón de copiar tenga dos opciones:
+
+1. Copiar lista corta.
+2. Copiar lista extendida.
+
+La lista corta sirve para enviar por WhatsApp/mensaje de texto.
+
+La lista extendida sirve para enviar una lista más clara agrupada por país/sección.
+
+---
+
+## PARTE 1 — UI EN falta.html
+
+En `falta.html`, reemplazar el botón actual:
+
+Copiar lista
+
+por dos botones:
+
+* Copiar lista corta
+* Copiar lista extendida
+
+Ejemplo visual:
+
+[ Copiar lista corta ]
+[ Copiar lista extendida ]
+
+Mantener:
+
+* Total faltantes.
+* Lista visible.
+* Buscador.
+* Cards actuales.
+* Diseño mobile friendly.
+
+---
+
+## PARTE 2 — LISTA CORTA
+
+La lista corta debe agrupar IDs por prefijo.
+
+Ejemplo esperado:
+
+Mis faltantes Panini World Cup 2026:
+
+FWC1,8
+MEX05,08,09,10,12
+RSA02,07,09,17
+KOR08,09,17
+
+Reglas:
+
+1. Para IDs normales:
+   MEX05, MEX08, MEX09
+   debe convertirse en:
+
+MEX05,08,09
+
+2. Para FWC:
+   FWC1, FWC8
+   debe convertirse en:
+
+FWC1,8
+
+3. Para 00:
+   debe mostrarse como línea propia:
+
+00
+
+4. Ordenar por prefijo alfabéticamente.
+
+5. Ordenar números de menor a mayor.
+
+6. Mantener el primer número con el prefijo.
+   Los siguientes números van separados por coma, sin repetir prefijo.
+
+Ejemplo:
+
+COL05
+COL08
+COL10
+
+Resultado:
+
+COL05,08,10
+
+7. Si hay IDs raros que no matchean patrón, ponerlos al final como líneas independientes.
+
+---
+
+## PARTE 3 — LISTA EXTENDIDA
+
+La lista extendida debe agrupar por país/sección/contexto.
+
+Formato deseado:
+
+Mis faltantes Panini World Cup 2026:
+
+Colombia
+COL05 - Nombre jugador
+COL08 - Nombre jugador
+
+México
+MEX05 - Nombre jugador
+MEX08 - Nombre jugador
+
+Sudáfrica
+RSA02 - Nombre jugador
+
+SECCION 4
+FWC1 - Descripción
+FWC8 - Descripción
+
+Reglas:
+
+1. Agrupar usando preferentemente:
+
+item.context
+
+Si `item.context` no existe, usar:
+
+item.section
+
+Si tampoco existe, usar:
+
+"Otros"
+
+2. Dentro de cada grupo, ordenar por ID.
+
+3. Cada línea debe tener:
+
+ID - Nombre
+
+Ejemplo:
+
+COL05 - Nombre jugador
+
+4. No repetir país/sección en cada línea si ya aparece como título del grupo.
+
+Antes no deseado:
+
+MEX05 - Nombre jugador - México
+MEX08 - Nombre jugador - México
+
+Ahora deseado:
+
+México
+MEX05 - Nombre jugador
+MEX08 - Nombre jugador
+
+5. Si el nombre está vacío, usar solo el ID.
+
+Ejemplo:
+
+COL05
+
+6. Para FWC usar la descripción/nombre que venga desde Google Sheets.
+
+Ejemplo:
+
+SECCION 4
+FWC9 - ITALIA 1934
+FWC10 - BRASIL 1950
+
+---
+
+## PARTE 4 — CAMPOS DESDE GOOGLE SHEETS
+
+La información debe salir del JSON que ya devuelve Apps Script en `missingList`.
+
+Campos esperados por item:
+
+item.id
+item.name
+item.context
+item.section
+
+Si actualmente Apps Script no devuelve `section`, no pasa nada si `context` ya contiene el país/sección.
+
+Si el usuario en el futuro cambia los nombres de países a inglés en Google Sheets, la lista extendida debe usar automáticamente esos nuevos valores porque vienen del Sheet.
+
+No hardcodear países en el frontend.
+
+No crear un mapa manual de países.
+
+---
+
+## PARTE 5 — FUNCIONES JAVASCRIPT
+
+Agregar o reemplazar las funciones actuales de copiar en `falta.html`.
+
+Crear:
+
+buildShortMissingText()
+buildExtendedMissingText()
+copyShortList()
+copyExtendedList()
+
+---
+
+## PARTE 6 — IMPLEMENTACIÓN SUGERIDA LISTA CORTA
+
+Implementar una función similar a:
+
+function buildShortMissingText() {
+const groups = {};
+const extras = [];
+
+missingItems.forEach(item => {
+const id = String(item.id || "").trim().toUpperCase();
+if (!id) return;
+
+```
+if (id === "00") {
+  extras.push("00");
+  return;
+}
+
+const match = id.match(/^([A-Z]+)(\d+)$/);
+if (!match) {
+  extras.push(id);
+  return;
+}
+
+const prefix = match[1];
+const number = match[2];
+
+if (!groups[prefix]) {
+  groups[prefix] = [];
+}
+
+groups[prefix].push(number);
+```
+
+});
+
+const lines = Object.keys(groups)
+.sort()
+.map(prefix => {
+const numbers = groups[prefix]
+.sort((a, b) => Number(a) - Number(b));
+
+```
+  if (numbers.length === 0) return "";
+
+  return prefix + numbers[0] + (
+    numbers.length > 1
+      ? "," + numbers.slice(1).join(",")
+      : ""
+  );
+})
+.filter(Boolean);
+```
+
+extras.sort().forEach(x => lines.push(x));
+
+return "Mis faltantes Panini World Cup 2026:\n\n" + lines.join("\n");
+}
+
+---
+
+## PARTE 7 — IMPLEMENTACIÓN SUGERIDA LISTA EXTENDIDA
+
+Implementar una función similar a:
+
+function buildExtendedMissingText() {
+const groups = {};
+
+missingItems.forEach(item => {
+const id = String(item.id || "").trim();
+if (!id) return;
+
+```
+const groupName = String(
+  item.context ||
+  item.section ||
+  "Otros"
+).trim();
+
+const name = String(item.name || "").trim();
+
+if (!groups[groupName]) {
+  groups[groupName] = [];
+}
+
+groups[groupName].push({
+  id,
+  name
+});
+```
+
+});
+
+const lines = ["Mis faltantes Panini World Cup 2026:", ""];
+
+Object.keys(groups)
+.sort()
+.forEach(groupName => {
+lines.push(groupName);
+
+```
+  groups[groupName]
+    .sort((a, b) => a.id.localeCompare(b.id, "es", { numeric: true }))
+    .forEach(item => {
+      if (item.name) {
+        lines.push(item.id + " - " + item.name);
+      } else {
+        lines.push(item.id);
+      }
+    });
+
+  lines.push("");
+});
+```
+
+return lines.join("\n").trim();
+}
+
+---
+
+## PARTE 8 — FUNCIÓN COPY GENÉRICA
+
+Crear función genérica para copiar:
+
+async function copyText(text, buttonId, originalLabel) {
+try {
+await navigator.clipboard.writeText(text);
+document.getElementById(buttonId).textContent = "Lista copiada";
+setTimeout(() => {
+document.getElementById(buttonId).textContent = originalLabel;
+}, 1800);
+} catch (error) {
+alert(text);
+}
+}
+
+Luego:
+
+async function copyShortList() {
+copyText(
+buildShortMissingText(),
+"copyShortButton",
+"Copiar lista corta"
+);
+}
+
+async function copyExtendedList() {
+copyText(
+buildExtendedMissingText(),
+"copyExtendedButton",
+"Copiar lista extendida"
+);
+}
+
+---
+
+## PARTE 9 — BOTONES HTML
+
+En `falta.html`, reemplazar el botón actual:
+
+```html
+<button class="btn" id="copyButton">Copiar lista</button>
+```
+
+por estos dos botones:
+
+```html
+<div class="actions">
+  <button class="btn" id="copyShortButton">Copiar lista corta</button>
+  <button class="btn dark" id="copyExtendedButton">Copiar lista extendida</button>
+</div>
+```
+
+Y agregar estos listeners en el script de `falta.html`, después de definir las funciones `copyShortList()` y `copyExtendedList()`:
+
+```javascript
+document.getElementById("copyShortButton").addEventListener("click", copyShortList);
+document.getElementById("copyExtendedButton").addEventListener("click", copyExtendedList);
+```
+
+---
+
+## PARTE 10 — VALIDACIONES
+
+Probar:
+
+Caso 1:
+IDs:
+MEX05
+MEX08
+MEX09
+MEX10
+MEX12
+
+Lista corta esperada:
+MEX05,08,09,10,12
+
+Caso 2:
+IDs:
+RSA02
+RSA07
+RSA09
+RSA17
+
+Lista corta esperada:
+RSA02,07,09,17
+
+Caso 3:
+IDs:
+FWC1
+FWC8
+
+Lista corta esperada:
+FWC1,8
+
+Caso 4:
+Lista extendida con Colombia:
+
+Colombia
+COL05 - Nombre jugador
+COL08 - Nombre jugador
+
+Caso 5:
+Lista extendida con especiales:
+
+SECCION 4
+FWC9 - ITALIA 1934
+FWC10 - BRASIL 1950
+
+Caso 6:
+Cambiar país en Google Sheets de “México” a “Mexico”.
+Resultado esperado:
+La lista extendida debe mostrar “Mexico”, sin tocar código.
+
+---
+
+## RESTRICCIONES
+
+No tocar Android.
+No tocar OCR.
+No tocar Apps Script salvo que falten campos en missingList.
+No hardcodear nombres de países.
+No crear mapas manuales de países.
+No tocar columna TIENE.
+No cambiar estructura del Sheet.
+No romper la lista visual actual de cards.
+No romper buscador.
+No romper config.js.
+No romper JSONP.
+
+---
+
+## RESULTADO ESPERADO
+
+Al final de esta iteración, `falta.html` tendrá:
+
+* Lista visual como ahora.
+* Botón “Copiar lista corta”.
+* Botón “Copiar lista extendida”.
+
+Lista corta:
+Ideal para WhatsApp o mensajes rápidos.
+
+Lista extendida:
+Ideal para enviar con más detalle, agrupada por país/sección.

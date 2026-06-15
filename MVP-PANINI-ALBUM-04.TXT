@@ -1,0 +1,500 @@
+MVP ITERACIÓN PANINI 2026 — ANDROID 3: CÁMARA + OCR PARA AÑADIR IDs A LISTA TEMPORAL
+
+Contexto:
+Ya funcionan los milestones anteriores.
+
+Estado actual:
+
+* Android app permite escribir IDs manualmente.
+* Android app tiene lista temporal.
+* Se pueden añadir varios IDs.
+* Se pueden eliminar IDs de la lista.
+* Se puede guardar la lista.
+* El backend Apps Script actualiza solo la columna CANTIDAD.
+* La columna TIENE no se toca.
+* La web se actualiza correctamente.
+* La configuración sensible va en local.properties / BuildConfig.
+* No hay secrets hardcodeados en el repo.
+
+Arquitectura actual:
+Android App → Apps Script doPost → Google Sheets → GitHub Pages
+
+IMPORTANTE:
+Esta iteración agrega cámara/OCR, pero NO cambia el backend.
+Esta iteración NO debe guardar automáticamente después de escanear.
+El OCR solo debe añadir IDs a la lista temporal existente.
+
+---
+
+## OBJETIVO GENERAL
+
+Agregar una función de escaneo con cámara para detectar el ID del cromo y añadirlo a la lista temporal.
+
+Flujo deseado:
+
+1. Usuario pulsa botón “Escanear”.
+2. Se abre una pantalla/cámara.
+3. La app usa OCR para leer texto.
+4. La app busca un ID válido en el texto detectado.
+5. Si detecta un ID, muestra confirmación:
+   “Detectado: COL05”
+6. Usuario puede:
+
+   * Añadir a lista
+   * Reintentar
+   * Cancelar
+7. Si pulsa “Añadir a lista”, el ID se agrega a la lista temporal existente.
+8. Usuario puede seguir escaneando más cromos.
+9. Luego usa el flujo ya existente:
+   “Guardar lista”.
+
+No guardar directamente en Google Sheets desde el escaneo.
+
+---
+
+## PARTE 1 — TECNOLOGÍAS
+
+Usar:
+
+* CameraX para cámara.
+* ML Kit Text Recognition para OCR.
+* Kotlin.
+* Jetpack Compose.
+
+No agregar framework externo innecesario.
+No cambiar la arquitectura.
+
+---
+
+## PARTE 2 — PERMISOS
+
+Agregar permiso de cámara en AndroidManifest.xml:
+
+<uses-permission android:name="android.permission.CAMERA" />
+
+Gestionar runtime permission en Android:
+
+* Si la app no tiene permiso de cámara, pedirlo.
+* Si el usuario lo concede, abrir cámara.
+* Si lo rechaza, mostrar mensaje:
+  “Necesito permiso de cámara para escanear cromos.”
+
+No romper la entrada manual si no hay permiso de cámara.
+
+---
+
+## PARTE 3 — UI PRINCIPAL
+
+En la pantalla principal existente, agregar botón:
+
+Escanear
+
+Debe estar cerca del campo manual.
+
+Botones principales sugeridos:
+
+* Añadir a lista
+* Escanear
+* Guardar lista
+* Limpiar lista
+
+El botón “Escanear” abre la pantalla de escaneo.
+
+La lista temporal sigue siendo la fuente principal.
+El escaneo solo añade IDs a esa lista.
+
+---
+
+## PARTE 4 — PANTALLA DE ESCANEO
+
+Crear una pantalla o composable nuevo:
+
+ScannerScreen
+
+Debe mostrar:
+
+* Preview de cámara.
+* Texto de ayuda:
+  “Apunta al código del cromo”
+* Botón Cancelar.
+* Estado:
+  “Buscando ID...”
+  “Detectado: COL05”
+
+Cuando se detecta un ID válido:
+
+* Pausar o ignorar detecciones repetidas temporalmente.
+* Mostrar diálogo o panel de confirmación.
+
+Confirmación:
+
+Título:
+ID detectado
+
+Texto:
+Detectado: COL05
+
+Botones:
+
+* Añadir a lista
+* Reintentar
+* Cancelar
+
+Si Añadir a lista:
+
+* Agregar COL05 a la lista temporal.
+* Volver a pantalla principal o permitir seguir escaneando.
+
+Para este MVP, preferencia:
+Después de añadir, volver a pantalla principal.
+
+---
+PARTE 5 — OCR Y EXTRACCIÓN DE ID ACTUALIZADA
+
+CORRECCIÓN ANDROID 3 — PATRÓN REAL DEL ID EN EL CROMO
+
+Nueva información importante:
+En el cromo físico, el patrón del ID normal es siempre:
+
+3 letras + espacio + número de 1 o 2 dígitos, máximo 20
+
+Ejemplos reales en el cromo:
+COL 5
+COL 05
+COL 20
+MEX 1
+UZB 12
+HAI 01
+
+En Google Sheets, el ID está guardado sin espacio y normalmente con dos dígitos:
+
+COL05
+COL20
+MEX01
+UZB12
+HAI01
+
+Por tanto, para OCR debemos detectar el patrón con espacio y luego normalizarlo.
+
+Regla para cromos normales:
+
+* Detectar: `([A-Z]{3})\s*(\d{1,2})`
+* Validar que el número esté entre 1 y 20.
+* Normalizar con dos dígitos:
+
+  * COL 5 → COL05
+  * COL 05 → COL05
+  * COL 20 → COL20
+  * MEX 1 → MEX01
+  * UZB 12 → UZB12
+
+IMPORTANTE:
+No aceptar números mayores a 20 para cromos normales.
+Ejemplo:
+COL 21 → inválido
+ABC 99 → inválido
+
+Para FWC:
+
+* Detectar FWC + espacio opcional + número.
+* Normalizar sin cero delante:
+
+  * FWC 9 → FWC9
+  * FWC 10 → FWC10
+* No convertir FWC9 a FWC09.
+
+Para 00:
+
+* Detectar exactamente 00.
+* Mantener como 00.
+
+Actualizar función `extractStickerIdFromText(rawText: String): String?`.
+
+Implementación sugerida:
+
+fun extractStickerIdFromText(rawText: String): String? {
+val text = rawText.uppercase()
+.replace("-", " ")
+.replace("_", " ")
+
+```
+// 1. FWC primero, porque FWC también tiene 3 letras
+val fwcRegex = Regex("""\bFWC\s*(\d{1,2})\b""")
+val fwcMatch = fwcRegex.find(text)
+if (fwcMatch != null) {
+    val number = fwcMatch.groupValues[1].toIntOrNull()
+    if (number != null && number in 1..19) {
+        return "FWC$number"
+    }
+}
+
+// 2. Código especial 00
+val zeroRegex = Regex("""\b00\b""")
+if (zeroRegex.containsMatchIn(text)) {
+    return "00"
+}
+
+// 3. Códigos normales: 3 letras + número 1..20
+val normalRegex = Regex("""\b([A-Z]{3})\s*(\d{1,2})\b""")
+val normalMatch = normalRegex.find(text)
+if (normalMatch != null) {
+    val prefix = normalMatch.groupValues[1]
+    val number = normalMatch.groupValues[2].toIntOrNull()
+
+    if (prefix != "FWC" && number != null && number in 1..20) {
+        return prefix + number.toString().padStart(2, '0')
+    }
+}
+
+return null
+```
+
+}
+
+También actualizar o revisar `normalizeStickerId(input: String)` para entrada manual:
+
+fun normalizeStickerId(input: String): String {
+val text = input.trim()
+.uppercase()
+.replace("-", " ")
+.replace("_", " ")
+
+```
+val fwcRegex = Regex("""^FWC\s*(\d{1,2})$""")
+val fwcMatch = fwcRegex.find(text)
+if (fwcMatch != null) {
+    val number = fwcMatch.groupValues[1].toIntOrNull()
+    if (number != null && number in 1..19) {
+        return "FWC$number"
+    }
+}
+
+if (text == "00") {
+    return "00"
+}
+
+val normalRegex = Regex("""^([A-Z]{3})\s*(\d{1,2})$""")
+val normalMatch = normalRegex.find(text)
+if (normalMatch != null) {
+    val prefix = normalMatch.groupValues[1]
+    val number = normalMatch.groupValues[2].toIntOrNull()
+
+    if (prefix != "FWC" && number != null && number in 1..20) {
+        return prefix + number.toString().padStart(2, '0')
+    }
+}
+
+return text.replace(" ", "")
+```
+
+}
+
+Tests esperados:
+
+Entrada OCR:
+COL 5
+Resultado:
+COL05
+
+Entrada OCR:
+COL 05
+Resultado:
+COL05
+
+Entrada OCR:
+COL 20
+Resultado:
+COL20
+
+Entrada OCR:
+COL 21
+Resultado:
+null
+
+Entrada OCR:
+MEX 1
+Resultado:
+MEX01
+
+Entrada OCR:
+UZB 12
+Resultado:
+UZB12
+
+Entrada OCR:
+FWC 9
+Resultado:
+FWC9
+
+Entrada OCR:
+FWC 10
+Resultado:
+FWC10
+
+Entrada OCR:
+FWC 09
+Resultado:
+FWC9
+
+Entrada OCR:
+00
+Resultado:
+00
+
+---
+
+## PARTE 6 — EVITAR DETECCIONES REPETIDAS
+
+El OCR puede detectar el mismo ID muchas veces por segundo.
+
+Agregar una protección simple:
+
+* lastDetectedId
+* lastDetectionTime
+
+Si el mismo ID se detecta otra vez dentro de 2 segundos, ignorarlo.
+
+Ejemplo conceptual:
+
+if (detectedId == lastDetectedId && now - lastDetectionTime < 2000) {
+return
+}
+
+Esto evita que la lista se llene accidentalmente.
+
+---
+
+## PARTE 7 — INTEGRACIÓN CON LISTA TEMPORAL
+
+La lista temporal ya existe.
+
+Cuando ScannerScreen confirma un ID:
+
+* llamar a la misma función que usa el input manual.
+* agregar el ID normalizado a la lista.
+* permitir IDs repetidos igual que antes.
+
+Ejemplo:
+onStickerDetected("COL05")
+
+Debe comportarse igual que si el usuario hubiera escrito COL05 y pulsado “Añadir a lista”.
+
+---
+
+## PARTE 8 — NO TOCAR BACKEND
+
+No cambiar Apps Script en esta iteración.
+
+Mantener endpoint actual:
+
+POST APPS_SCRIPT_URL
+
+Body:
+{
+"secret": "...",
+"action": "addSticker",
+"stickerId": "COL05",
+"confirmDuplicate": false
+}
+
+No crear bulk endpoint.
+No cambiar doPost.
+No tocar CANTIDAD.
+No tocar TIENE.
+
+---
+
+## PARTE 9 — ERRORES Y UX
+
+Casos:
+
+1. No se detecta ID:
+   Mostrar:
+   “Buscando ID...”
+
+2. OCR detecta texto, pero no ID:
+   Seguir escaneando.
+
+3. Detecta ID incorrecto:
+   Usuario puede pulsar Reintentar o cancelar.
+   También podrá corregir manualmente en pantalla principal.
+
+4. Permiso denegado:
+   Mostrar:
+   “Permiso de cámara denegado. Puedes seguir agregando IDs manualmente.”
+
+5. Error de cámara:
+   Mostrar:
+   “No se pudo abrir la cámara.”
+
+---
+
+## PARTE 10 — TESTS MANUALES
+
+Probar:
+
+Caso 1:
+Apuntar a código COL05.
+Esperado:
+Detecta COL05 y permite añadir a lista.
+
+Caso 2:
+Apuntar a FWC9.
+Esperado:
+Detecta FWC9.
+
+Caso 3:
+Apuntar a FWC10.
+Esperado:
+Detecta FWC10.
+
+Caso 4:
+Apuntar a 00.
+Esperado:
+Detecta 00.
+
+Caso 5:
+Texto con espacios:
+COL 05
+Esperado:
+Detecta COL05.
+
+Caso 6:
+Detecta mal.
+Esperado:
+Usuario puede reintentar o cancelar.
+
+Caso 7:
+Sin permiso de cámara.
+Esperado:
+App sigue funcionando con entrada manual.
+
+---
+
+## PARTE 11 — RESTRICCIONES
+
+No guardar automáticamente en Google Sheets después de escanear.
+No cambiar backend.
+No crear endpoint bulk.
+No tocar web.
+No tocar Google Sheet.
+No tocar columna TIENE.
+No hardcodear secrets.
+No eliminar entrada manual.
+No hacer OCR demasiado agresivo.
+No exigir que OCR sea perfecto en esta iteración.
+
+---
+
+## RESULTADO ESPERADO
+
+Al final de esta iteración:
+
+* La app sigue funcionando manualmente.
+* Hay botón “Escanear”.
+* La cámara puede leer un ID.
+* El ID detectado se agrega a la lista temporal.
+* El usuario revisa la lista.
+* El usuario guarda la lista usando el flujo ya existente.
+
+Este MVP prepara la base para una iteración futura de escaneo continuo o mejor OCR.

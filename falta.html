@@ -81,8 +81,9 @@ footer{color:var(--muted);font-size:13px;margin-top:26px}
     <div class="card"><span>Lista</span><strong id="visibleTotal">-</strong></div>
   </section>
 
-  <div class="actions one">
-    <button class="btn" id="copyButton">Copiar lista</button>
+  <div class="actions">
+    <button class="btn" id="copyShortButton">Copiar lista corta</button>
+    <button class="btn dark" id="copyExtendedButton">Copiar lista extendida</button>
   </div>
 
   <input id="searchInput" class="search" type="text" placeholder="Buscar por ID, selección o nombre...">
@@ -137,22 +138,113 @@ function renderList(items){
     list.appendChild(card);
   });
 }
-function buildCopyText(){
+function buildShortMissingText(){
   if(!missingItems.length)return "No tengo cromos faltantes por ahora.";
-  const lines=missingItems.map(item=>`${item.id} - ${item.name||""} - ${item.context||""}`);
-  return "Mis faltantes Panini World Cup 2026:\n"+lines.join("\n");
+  const groups={};
+  const extras=[];
+
+  missingItems.forEach(item=>{
+    const id=String(item.id||"").trim().toUpperCase();
+    if(!id)return;
+
+    if(id==="00"){
+      extras.push("00");
+      return;
+    }
+
+    const match=id.match(/^([A-Z]+)(\d+)$/);
+    if(!match){
+      extras.push(id);
+      return;
+    }
+
+    const prefix=match[1];
+    const number=match[2];
+
+    if(!groups[prefix]){
+      groups[prefix]=[];
+    }
+
+    groups[prefix].push(number);
+  });
+
+  const lines=Object.keys(groups)
+    .sort()
+    .map(prefix=>{
+      const numbers=groups[prefix]
+        .slice()
+        .sort((a,b)=>Number(a)-Number(b));
+
+      if(numbers.length===0)return "";
+
+      return prefix+numbers[0]+(
+        numbers.length>1
+          ? ","+numbers.slice(1).join(",")
+          : ""
+      );
+    })
+    .filter(Boolean);
+
+  extras.sort((a,b)=>a.localeCompare(b,"es",{numeric:true})).forEach(item=>lines.push(item));
+
+  return "Mis faltantes Panini World Cup 2026:\n\n"+lines.join("\n");
 }
-async function copyList(){
-  const text=buildCopyText();
+
+function buildExtendedMissingText(){
+  if(!missingItems.length)return "No tengo cromos faltantes por ahora.";
+  const groups={};
+
+  missingItems.forEach(item=>{
+    const id=String(item.id||"").trim();
+    if(!id)return;
+
+    const groupName=String(item.context||item.section||"Otros").trim()||"Otros";
+    const name=String(item.name||"").trim();
+
+    if(!groups[groupName]){
+      groups[groupName]=[];
+    }
+
+    groups[groupName].push({id,name});
+  });
+
+  const lines=["Mis faltantes Panini World Cup 2026:",""];
+
+  Object.keys(groups)
+    .sort((a,b)=>a.localeCompare(b,"es",{numeric:true}))
+    .forEach(groupName=>{
+      lines.push(groupName);
+
+      groups[groupName]
+        .slice()
+        .sort((a,b)=>a.id.localeCompare(b.id,"es",{numeric:true}))
+        .forEach(item=>{
+          lines.push(item.name?`${item.id} - ${item.name}`:item.id);
+        });
+
+      lines.push("");
+    });
+
+  return lines.join("\n").trim();
+}
+
+async function copyText(text,buttonId,originalLabel){
   try{
     await navigator.clipboard.writeText(text);
-    document.getElementById("copyButton").textContent="Lista copiada";
-    setTimeout(()=>document.getElementById("copyButton").textContent="Copiar lista",1800);
+    document.getElementById(buttonId).textContent="Lista copiada";
+    setTimeout(()=>document.getElementById(buttonId).textContent=originalLabel,1800);
   }catch(error){
     alert(text);
   }
 }
-document.getElementById("copyButton").addEventListener("click",copyList);
+function copyShortList(){
+  return copyText(buildShortMissingText(),"copyShortButton","Copiar lista corta");
+}
+function copyExtendedList(){
+  return copyText(buildExtendedMissingText(),"copyExtendedButton","Copiar lista extendida");
+}
+document.getElementById("copyShortButton").addEventListener("click",copyShortList);
+document.getElementById("copyExtendedButton").addEventListener("click",copyExtendedList);
 document.getElementById("searchInput").addEventListener("input",function(e){
   const search=e.target.value.toLowerCase().trim();
   const filtered=missingItems.filter(item=>
