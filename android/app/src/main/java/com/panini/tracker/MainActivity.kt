@@ -23,9 +23,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -100,16 +103,20 @@ fun StickerBatchScreen(api: PaniniApi) {
     }
 
     fun addIdToList(id: String) {
-        val normalizedId = normalizeStickerId(id)
+        val normalizedIds = parseStickerIds(id)
 
-        if (normalizedId.isBlank()) {
+        if (normalizedIds.isEmpty()) {
             statusMessage = "Escribe un ID válido."
             return
         }
 
-        stickerIds.add(normalizedId)
+        stickerIds.addAll(normalizedIds)
         inputId = ""
-        statusMessage = "${stickerIds.size} cromos en lista."
+        statusMessage = if (normalizedIds.size == 1) {
+            "${normalizedIds.first()} añadido a la lista."
+        } else {
+            "${normalizedIds.size} cromos añadidos a la lista."
+        }
     }
 
     fun clearList() {
@@ -161,40 +168,72 @@ fun StickerBatchScreen(api: PaniniApi) {
             val result = BatchSummary()
             val itemsToSave = stickerIds.toList()
 
-            itemsToSave.forEachIndexed { index, id ->
-                statusMessage = "Guardando ${index + 1} de ${itemsToSave.size}: $id"
+            try {
+                statusMessage = "Enviando ${itemsToSave.size} cromos..."
+                val batchResponse = api.addStickerBatch(itemsToSave)
+                val confirmedDuplicates = mutableListOf<String>()
 
-                try {
-                    val response = api.addSticker(id, confirmDuplicate = false)
-                    val responseId = response.sticker?.id ?: id
+                if (!batchResponse.ok) {
+                    statusMessage = batchResponse.message.ifBlank {
+                        "No se pudo guardar la lista. Revisa Apps Script."
+                    }
+                    result.errors.addAll(itemsToSave)
+                    saving = false
+                    return@launch
+                }
 
-                    when (response.status) {
-                        "added" -> result.added.add(responseId)
-                        "incremented" -> result.incremented.add(responseId)
-                        "not_found" -> result.notFound.add(responseId)
+                if (batchResponse.results.isEmpty() && itemsToSave.isNotEmpty()) {
+                    statusMessage = "Apps Script no devolvió resultados batch. Revisa que addStickerBatch esté desplegado."
+                    result.errors.addAll(itemsToSave)
+                    saving = false
+                    return@launch
+                }
+
+                batchResponse.results.forEach { item ->
+                    when (item.status) {
+                        "added" -> result.added.add(item.id)
+                        "incremented" -> result.incremented.add(item.id)
+                        "not_found" -> result.notFound.add(item.id)
                         "already_exists" -> {
-                            val confirmed = askDuplicate(responseId)
-
+                            val confirmed = askDuplicate(item.id)
                             if (confirmed) {
-                                try {
-                                    val confirmedResponse = api.addSticker(responseId, confirmDuplicate = true)
-                                    if (confirmedResponse.ok) {
-                                        result.incremented.add(confirmedResponse.sticker?.id ?: responseId)
-                                    } else {
-                                        result.errors.add(responseId)
-                                    }
-                                } catch (_: Exception) {
-                                    result.errors.add(responseId)
-                                }
+                                confirmedDuplicates.add(item.id)
                             } else {
-                                result.cancelled.add(responseId)
+                                result.cancelled.add(item.id)
                             }
                         }
-                        else -> result.errors.add(responseId)
+                        else -> result.errors.add(item.id)
                     }
-                } catch (_: Exception) {
-                    result.errors.add(id)
                 }
+
+                if (confirmedDuplicates.isNotEmpty()) {
+                    statusMessage = "Guardando duplicados confirmados..."
+                    val confirmMap = confirmedDuplicates.associateWith { true }
+                    val confirmedResponse = api.addStickerBatch(
+                        stickerIds = confirmedDuplicates,
+                        confirmDuplicates = confirmMap,
+                    )
+
+                    if (!confirmedResponse.ok) {
+                        result.errors.addAll(confirmedDuplicates)
+                        statusMessage = confirmedResponse.message.ifBlank {
+                            "No se pudieron guardar duplicados confirmados."
+                        }
+                        saving = false
+                        return@launch
+                    }
+
+                    confirmedResponse.results.forEach { item ->
+                        when (item.status) {
+                            "incremented" -> result.incremented.add(item.id)
+                            "added" -> result.added.add(item.id)
+                            "not_found" -> result.notFound.add(item.id)
+                            else -> result.errors.add(item.id)
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                result.errors.addAll(itemsToSave)
             }
 
             statusMessage = result.toDisplayText()
@@ -206,7 +245,6 @@ fun StickerBatchScreen(api: PaniniApi) {
         ScannerScreen(
             onStickerConfirmed = { id ->
                 addIdToList(id)
-                showScanner = false
             },
             onCancel = { showScanner = false },
         )
@@ -255,10 +293,13 @@ fun MainListScreen(
     onSave: () -> Unit,
     onClear: () -> Unit,
 ) {
+    val statusScrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(20.dp),
+            .padding(horizontal = 20.dp, vertical = 20.dp)
+            .padding(bottom = 56.dp),
     ) {
         Text(
             text = "Panini 2026 Tracker",
@@ -321,7 +362,16 @@ fun MainListScreen(
             fontWeight = FontWeight.Bold,
         )
         Spacer(modifier = Modifier.height(8.dp))
-        Text(text = statusMessage)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = statusMessage,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 180.dp)
+                    .verticalScroll(statusScrollState)
+                    .padding(12.dp),
+            )
+        }
         Spacer(modifier = Modifier.height(12.dp))
 
         LazyColumn(
@@ -420,7 +470,8 @@ fun ScannerScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(16.dp)
+            .padding(bottom = 48.dp),
     ) {
         Text(
             text = "Apunta al código del cromo",
@@ -441,7 +492,7 @@ fun ScannerScreen(
             onClick = onCancel,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Cancelar")
+            Text("Finalizar")
         }
     }
 
@@ -451,7 +502,11 @@ fun ScannerScreen(
             title = { Text("ID detectado") },
             text = { Text("Detectado: $id") },
             confirmButton = {
-                TextButton(onClick = { onStickerConfirmed(id) }) {
+                TextButton(onClick = {
+                    onStickerConfirmed(id)
+                    detectedId = null
+                    statusMessage = "$id añadido a la lista."
+                }) {
                     Text("Añadir a lista")
                 }
             },
@@ -461,7 +516,7 @@ fun ScannerScreen(
                         Text("Reintentar")
                     }
                     TextButton(onClick = onCancel) {
-                        Text("Cancelar")
+                        Text("Finalizar")
                     }
                 }
             },
@@ -595,6 +650,13 @@ fun normalizeStickerId(input: String): String {
     }
 
     return text.replace(" ", "")
+}
+
+fun parseStickerIds(input: String): List<String> {
+    return input
+        .split(",")
+        .map { normalizeStickerId(it) }
+        .filter { it.isNotBlank() }
 }
 
 data class DuplicateRequest(

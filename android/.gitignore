@@ -3,5 +3,7 @@ build/
 local.properties
 **/build/
 **/generated/
+**/debug/
+**/release/
 *.iml
 *.hprof

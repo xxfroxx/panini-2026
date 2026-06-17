@@ -1,0 +1,624 @@
+MVP ITERACION PANINI 2026 — ANDROID 4 + APPS SCRIPT BATCH: UX FIXES Y GUARDADO RAPIDO
+
+Contexto:
+Ya funcionan los milestones anteriores:
+
+* Web dashboard.
+* Pagina de repetidas.
+* Pagina de faltantes.
+* Android manual.
+* Android lista temporal.
+* Android OCR.
+* Apps Script actualiza solo CANTIDAD.
+* La columna TIENE no se toca.
+* La configuracion sensible va en local.properties / BuildConfig.
+
+Problemas detectados:
+
+1. Guardar cromos tarda demasiado.
+   Cada ID puede tardar 10 u 11 segundos.
+   Para una lista, el tiempo total crece demasiado porque Android llama al backend uno por uno.
+
+2. Al girar el movil, la lista temporal se borra.
+   Para este MVP la app debe quedar bloqueada en vertical.
+
+3. En modo escaner, el boton Cancelar queda demasiado abajo y se solapa con la barra de navegacion del movil.
+
+4. Despues de guardar una lista larga, si hubo errores o no encontrados, el resumen no se puede revisar comodamente porque no hay scroll suficiente.
+
+Arquitectura actual:
+Android App -> Apps Script doPost -> Google Sheets -> GitHub Pages
+
+Arquitectura deseada para esta iteracion:
+Android App -> Apps Script doPost batch -> Google Sheets -> GitHub Pages
+
+IMPORTANTE:
+Esta iteracion SI cambia Apps Script.
+Despues de cambiar Apps Script, hay que guardar y desplegar una nueva version en Google Apps Script.
+Si no se despliega una nueva version, Android seguira llamando al codigo viejo y addStickerBatch no funcionara.
+Esta iteracion NO cambia Google Sheets.
+Esta iteracion NO toca la columna TIENE.
+Esta iteracion NO cambia la web.
+Esta iteracion NO cambia OCR salvo ajustes de UI del scanner.
+
+---
+
+## OBJETIVO GENERAL
+
+Mejorar la experiencia de guardado de listas:
+
+1. Bloquear Android en orientacion vertical.
+2. Subir el boton Cancelar del scanner para evitar solape con la barra del sistema.
+3. Hacer scrolleable el resumen final de guardado.
+4. Permitir agregar varios IDs manuales separados por coma al campo "ID del cromo".
+5. Mantener el scanner abierto despues de añadir un ID a la lista, con feedback breve.
+6. Crear un endpoint batch en Apps Script para procesar varios IDs en una sola llamada.
+7. Actualizar Android para usar el endpoint batch al pulsar "Guardar lista".
+8. Mantener confirmacion de duplicados cuando sea necesario.
+9. Mantener el comportamiento actual de lista temporal.
+
+---
+
+## PARTE 1 — ANDROID: BLOQUEAR ORIENTACION VERTICAL
+
+Actualizar AndroidManifest.xml para que MainActivity use orientacion vertical.
+
+Agregar en la activity:
+
+android:screenOrientation="portrait"
+
+Resultado esperado:
+
+* Si el usuario gira el movil, la app no rota.
+* La lista temporal no se borra por recreacion de Activity.
+* No hace falta persistencia compleja en esta iteracion.
+
+---
+
+## PARTE 2 — ANDROID: AJUSTE BOTON CANCELAR EN SCANNER
+
+Problema:
+El boton Cancelar queda muy abajo y se solapa visualmente con la barra de navegacion del telefono.
+Ademas, en modo scanner continuo, el boton ya no significa cancelar un unico escaneo sino salir del modo scanner.
+
+Solucion:
+En ScannerScreen, agregar padding inferior extra o usar safe area/insets si esta disponible.
+Renombrar el boton de salida a:
+
+Finalizar
+
+Para este MVP basta con subir el boton con padding inferior.
+
+Ejemplo conceptual:
+
+Column(
+modifier = Modifier
+.fillMaxSize()
+.padding(16.dp)
+.padding(bottom = 32.dp)
+)
+
+Resultado esperado:
+
+* El boton Finalizar queda visible.
+* No queda pegado a la barra de navegacion.
+* El usuario puede salir facilmente del modo scanner.
+
+---
+
+## PARTE 3 — ANDROID: RESUMEN FINAL SCROLLEABLE
+
+Problema:
+Cuando se guarda una lista larga, el resumen final puede contener:
+
+* agregados
+* incrementados
+* no encontrados
+* cancelados
+* errores
+
+Si el texto es largo, no se puede revisar bien.
+
+Solucion:
+Hacer que el area de estado/resumen sea scrolleable.
+
+Opciones validas:
+
+* Usar un LazyColumn para mostrar el resumen.
+* Usar verticalScroll en el bloque de texto del resumen.
+* Separar estado corto y detalle largo.
+
+Resultado esperado:
+
+* Despues de guardar, el usuario puede ver claramente que IDs fallaron.
+* Los IDs no encontrados y errores deben estar visibles.
+* La lista temporal no debe bloquear la revision del resumen.
+
+---
+
+## PARTE 4 — ANDROID: ENTRADA MANUAL MULTIPLE
+
+Problema:
+El usuario puede tener varios IDs ya escritos o leidos visualmente y quiere agregarlos rapido sin pulsar "Añadir a lista" uno por uno.
+
+Solucion:
+Permitir que el campo "ID del cromo" acepte varios IDs separados por coma.
+
+Ejemplo:
+
+MEX1,PAR11,CIV18,ARG2
+
+Al pulsar "Añadir a lista", la app debe agregar a la lista temporal:
+
+MEX01
+PAR11
+CIV18
+ARG02
+
+Reglas:
+
+1. Separar por coma.
+2. Hacer trim de cada parte.
+3. Normalizar cada ID con normalizeStickerId().
+4. Ignorar partes vacias.
+5. Permitir repetidos.
+6. Si todos los valores quedan vacios o invalidos, mostrar:
+
+"Escribe un ID válido."
+
+7. Si algunos valores son validos y otros vacios, agregar los validos.
+8. Para este MVP, no bloquear IDs que no existan en Google Sheets; eso se valida al guardar.
+
+Ejemplos validos:
+
+MEX1, PAR11, CIV18, ARG2
+
+Resultado:
+
+MEX01
+PAR11
+CIV18
+ARG02
+
+Ejemplo con repetidos:
+
+COL5,COL5
+
+Resultado:
+
+COL05
+COL05
+
+Resultado esperado:
+El usuario puede pegar o escribir una lista corta manual y convertirla en lista temporal con un solo click.
+
+---
+
+## PARTE 5 — ANDROID: SCANNER CONTINUO
+
+Problema:
+Actualmente, al escanear un ID y pulsar "Añadir a lista", la app vuelve a la pantalla principal.
+Esto obliga al usuario a pulsar "Escanear" otra vez por cada cromo y hace lento el flujo.
+
+Solucion:
+Mantener el scanner abierto despues de añadir un ID a la lista.
+
+Nuevo flujo:
+
+1. Usuario pulsa "Escanear".
+2. Scanner detecta ID.
+3. App muestra confirmacion:
+
+Detectado: COL05
+
+Botones:
+
+* Añadir a lista
+* Reintentar
+* Finalizar
+
+4. Si usuario pulsa "Añadir a lista":
+
+* agregar COL05 a la lista temporal
+* mostrar feedback breve:
+
+COL05 añadido a la lista
+
+* cerrar dialogo
+* volver a estado:
+
+Buscando ID...
+
+* permanecer en pantalla scanner
+
+5. Si usuario pulsa "Reintentar":
+
+* no agregar nada
+* cerrar dialogo
+* volver a:
+
+Buscando ID...
+
+6. Si usuario pulsa "Finalizar":
+
+* salir del modo scanner
+* volver a pantalla principal con la lista temporal intacta
+
+Reglas:
+
+* Mantener proteccion contra detecciones repetidas.
+* Permitir escanear el mismo ID otra vez despues de la ventana anti-repeticion.
+* No guardar automaticamente en Google Sheets.
+* La lista temporal sigue siendo la fuente de verdad.
+
+Resultado esperado:
+El usuario puede escanear varios cromos seguidos sin salir y entrar del scanner continuamente.
+
+---
+
+## PARTE 6 — BACKEND APPS SCRIPT: NUEVA ACCION BATCH
+
+Agregar una nueva accion a doPost:
+
+action: "addStickerBatch"
+
+Request:
+
+{
+  "secret": "...",
+  "action": "addStickerBatch",
+  "stickerIds": ["COL05", "MEX01", "FWC9"],
+  "confirmDuplicates": {
+    "COL05": true
+  }
+}
+
+Notas:
+
+* stickerIds debe procesarse en orden.
+* Permitir IDs repetidos.
+* confirmDuplicates es opcional.
+* Si un ID esta repetido en la lista, se procesa cada aparicion.
+* No crear ni cambiar columnas.
+* No tocar TIENE.
+
+---
+
+## PARTE 6.1 — DESPLIEGUE OBLIGATORIO DE APPS SCRIPT
+
+Como esta iteracion cambia `apps-script/Code.js`, despues de implementar el backend hay que actualizar Apps Script en la nube.
+
+Pasos obligatorios:
+
+1. Copiar el contenido actualizado de `apps-script/Code.js`.
+2. Pegar en el editor de Google Apps Script.
+3. Guardar.
+4. Ir a:
+
+Implementar > Gestionar implementaciones
+
+5. Editar la implementacion actual.
+6. En Version, seleccionar:
+
+Nueva version
+
+7. Implementar.
+8. Volver a Android y probar.
+
+Validacion minima despues del despliegue:
+
+* Crear lista con ZZZ99.
+* Pulsar Guardar lista.
+* Resultado esperado:
+
+No encontrados: 1
+Errores: 0
+
+Si no se hace este despliegue, Android puede mostrar errores o no guardar porque el endpoint `addStickerBatch` no existira en la version publicada.
+
+---
+
+## PARTE 7 — BACKEND: RESPUESTA BATCH
+
+Respuesta esperada:
+
+{
+  "ok": true,
+  "status": "batch_processed",
+  "message": "Lista procesada.",
+  "results": [
+    {
+      "id": "COL05",
+      "status": "added",
+      "message": "Cromo agregado correctamente.",
+      "oldQuantity": 0,
+      "newQuantity": 1
+    },
+    {
+      "id": "MEX01",
+      "status": "already_exists",
+      "requiresConfirmation": true,
+      "message": "Este cromo ya existe. ¿Quieres sumar +1?",
+      "oldQuantity": 1,
+      "newQuantity": 1
+    },
+    {
+      "id": "FWC9",
+      "status": "not_found",
+      "message": "No se encontro el ID FWC9."
+    }
+  ],
+  "summary": {
+    "added": 1,
+    "incremented": 0,
+    "alreadyExists": 1,
+    "notFound": 1,
+    "errors": 0
+  }
+}
+
+Estados por item:
+
+* added
+* incremented
+* already_exists
+* not_found
+* error
+
+---
+
+## PARTE 8 — BACKEND: RENDIMIENTO
+
+Objetivo:
+Evitar que Apps Script lea todas las hojas por cada ID.
+
+Implementacion esperada:
+
+1. Leer las hojas del album una vez.
+2. Crear un indice en memoria por ID normalizado.
+3. Procesar stickerIds en orden.
+4. Para cada ID:
+   * leer cantidad actual desde memoria/row actualizada
+   * calcular nueva cantidad si corresponde
+   * escribir solo CANTIDAD cuando haya update
+5. Limpiar cache una sola vez al final si hubo cambios.
+
+No hacer:
+
+* No llamar addSticker individual para cada ID si eso vuelve a escanear hojas.
+* No tocar TIENE.
+* No llamar clearPaniniCache por cada item.
+
+Resultado esperado:
+Guardar una lista debe tomar mucho menos tiempo que enviar un POST por ID.
+
+---
+
+## PARTE 9 — ANDROID: USAR ENDPOINT BATCH
+
+Actualizar PaniniApi:
+
+Crear funcion:
+
+suspend fun addStickerBatch(
+    stickerIds: List<String>,
+    confirmDuplicates: Map<String, Boolean> = emptyMap()
+): AddStickerBatchResponse
+
+Debe enviar:
+
+{
+  "secret": AppConfig.APP_SECRET,
+  "action": "addStickerBatch",
+  "stickerIds": stickerIds,
+  "confirmDuplicates": confirmDuplicates
+}
+
+Mantener addSticker individual por compatibilidad o fallback.
+
+---
+
+## PARTE 10 — ANDROID: FLUJO DE CONFIRMACION CON BATCH
+
+Cuando el usuario pulsa "Guardar lista":
+
+1. Android envia toda la lista con confirmDuplicates vacio.
+2. Backend responde results.
+3. Si no hay already_exists:
+   * mostrar resumen final.
+
+4. Si hay already_exists:
+   * mostrar dialogo para cada ID que requiere confirmacion.
+   * Si usuario confirma, marcar ese ID en confirmDuplicates.
+   * Si usuario cancela, contarlo como cancelado.
+
+5. Despues de resolver confirmaciones:
+   * Android puede enviar un segundo batch solo con los IDs confirmados.
+   * O enviar la lista original con confirmDuplicates actualizado.
+
+Para este MVP, preferencia:
+Enviar un segundo batch solo con los IDs confirmados.
+
+Ejemplo:
+
+Primera llamada:
+["COL05", "MEX01", "FWC9"]
+
+Respuesta:
+COL05 -> already_exists
+MEX01 -> added
+FWC9 -> not_found
+
+Usuario confirma COL05.
+
+Segunda llamada:
+["COL05"]
+confirmDuplicates:
+{ "COL05": true }
+
+Resultado:
+COL05 -> incremented
+
+Resumen final:
+Agregados: 1
+Incrementados: 1
+No encontrados: 1
+Cancelados: 0
+Errores: 0
+
+---
+
+## PARTE 11 — ANDROID: IDS REPETIDOS EN BATCH
+
+La lista temporal permite repetidos.
+
+Ejemplo:
+
+COL05
+COL05
+
+Si COL05 tenia cantidad 0:
+
+* primera aparicion -> added, cantidad 1
+* segunda aparicion -> already_exists
+
+Si usuario confirma:
+
+* segunda aparicion -> incremented, cantidad 2
+
+IMPORTANTE:
+El backend debe procesar apariciones repetidas en orden.
+No convertir stickerIds a Set.
+
+---
+
+## PARTE 12 — CACHE
+
+Apps Script debe limpiar cache solo si hubo algun update exitoso:
+
+* added
+* incremented
+
+Usar clearPaniniCache() una sola vez al final del batch.
+
+Claves:
+
+* panini_dashboard
+* panini_repe
+* panini_missing
+* panini_full
+
+---
+
+## PARTE 13 — VALIDACIONES MANUALES
+
+Caso 1:
+Lista:
+ZZZ99
+
+Resultado:
+not_found rapido.
+
+Caso 2:
+Lista:
+COL05
+MEX01
+FWC9
+
+Resultado:
+Se procesa en una llamada batch.
+
+Caso 3:
+Lista:
+COL05
+COL05
+
+Si COL05 estaba en 0:
+
+* primer COL05 -> added
+* segundo COL05 -> pide confirmacion
+* si se confirma -> incremented
+
+Caso 4:
+Cancelar duplicado:
+
+* backend devuelve already_exists
+* usuario pulsa Cancelar
+* no se incrementa
+* aparece como cancelado en resumen
+
+Caso 5:
+Lista larga con errores:
+
+* resumen final debe ser scrolleable
+* debe verse el ID erroneo
+
+Caso 6:
+Girar movil:
+
+* la app sigue vertical
+* la lista no se borra
+
+Caso 7:
+Scanner:
+
+* boton Finalizar queda visible
+* no se solapa con la barra de navegacion
+
+Caso 8:
+Entrada manual multiple:
+
+MEX1,PAR11,CIV18,ARG2
+
+Resultado:
+
+* Se agregan cuatro filas a la lista temporal.
+* IDs normalizados:
+  MEX01
+  PAR11
+  CIV18
+  ARG02
+
+Caso 9:
+Scanner continuo:
+
+* escanear COL05
+* pulsar Añadir a lista
+* ver feedback "COL05 añadido a la lista"
+* seguir en modo scanner
+* escanear MEX01
+* pulsar Añadir a lista
+* pulsar Finalizar
+* ver COL05 y MEX01 en la lista temporal
+
+---
+
+## PARTE 14 — RESTRICCIONES
+
+No tocar web.
+No tocar OCR salvo posicion del boton Cancelar.
+No cambiar estructura de Google Sheet.
+No tocar columna TIENE.
+No hardcodear secrets.
+No eliminar addSticker individual.
+No convertir la lista temporal en Set.
+No guardar automaticamente despues de escanear.
+No validar existencia de IDs al agregarlos manualmente a la lista; se valida al guardar.
+No salir automaticamente del scanner despues de "Añadir a lista".
+
+---
+
+## RESULTADO ESPERADO
+
+Al final de esta iteracion:
+
+* La app queda bloqueada en vertical.
+* El scanner tiene boton Cancelar accesible.
+* El scanner permite escanear varios IDs seguidos sin volver a la pantalla principal.
+* El resumen final se puede revisar con scroll.
+* El input manual permite agregar varios IDs separados por coma.
+* Guardar una lista usa endpoint batch.
+* Guardar una lista es notablemente mas rapido.
+* La app sigue respetando confirmaciones para duplicados.
+* Apps Script sigue escribiendo solo en CANTIDAD.
+* La columna TIENE no se toca.

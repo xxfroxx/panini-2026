@@ -74,6 +74,10 @@ function doPost(e) {
     }
 
     if (request.action !== 'addSticker') {
+      if (request.action === 'addStickerBatch') {
+        return jsonResponse(addStickerBatch(request.stickerIds, request.confirmDuplicates || {}));
+      }
+
       return jsonResponse({
         ok: false,
         status: 'invalid_action',
@@ -231,6 +235,138 @@ function addSticker(inputStickerId, confirmDuplicate) {
       : 'Cantidad actualizada correctamente.',
     sticker: buildStickerResponse(found, oldQuantity, newQuantity)
   };
+}
+
+function addStickerBatch(inputStickerIds, confirmDuplicates) {
+  const stickerIds = Array.isArray(inputStickerIds) ? inputStickerIds : [];
+  const index = buildStickerIndex();
+  const results = [];
+  let hasUpdates = false;
+
+  stickerIds.forEach(inputStickerId => {
+    const stickerId = normalizeStickerId(inputStickerId);
+
+    if (!stickerId) {
+      results.push({
+        id: '',
+        status: 'invalid_id',
+        message: 'ID de cromo inválido.'
+      });
+      return;
+    }
+
+    const found = index[stickerId];
+
+    if (!found) {
+      results.push({
+        id: stickerId,
+        status: 'not_found',
+        message: 'No se encontró el ID ' + stickerId + '.'
+      });
+      return;
+    }
+
+    const oldQuantity = Number(found.row[found.columns.quantity]) || 0;
+    const confirmDuplicate = confirmDuplicates && confirmDuplicates[stickerId] === true;
+
+    if (oldQuantity > 0 && !confirmDuplicate) {
+      results.push({
+        id: stickerId,
+        status: 'already_exists',
+        requiresConfirmation: true,
+        message: 'Este cromo ya existe. ¿Quieres sumar +1?',
+        oldQuantity,
+        newQuantity: oldQuantity
+      });
+      return;
+    }
+
+    const newQuantity = oldQuantity + 1;
+    found.sheet.getRange(found.rowNumber, found.columns.quantity + 1).setValue(newQuantity);
+    found.row[found.columns.quantity] = newQuantity;
+    hasUpdates = true;
+
+    results.push({
+      id: stickerId,
+      status: oldQuantity === 0 ? 'added' : 'incremented',
+      message: oldQuantity === 0
+        ? 'Cromo agregado correctamente.'
+        : 'Cantidad actualizada correctamente.',
+      oldQuantity,
+      newQuantity
+    });
+  });
+
+  if (hasUpdates) {
+    SpreadsheetApp.flush();
+    clearPaniniCache();
+  }
+
+  return {
+    ok: true,
+    status: 'batch_processed',
+    message: 'Lista procesada.',
+    results,
+    summary: buildBatchSummary(results)
+  };
+}
+
+function buildStickerIndex() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const index = {};
+
+  SHEETS.forEach(sheetName => {
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return;
+
+    const values = sheet.getDataRange().getValues();
+    if (!values || values.length < 2) return;
+
+    const headers = values[0];
+    const columns = getStickerColumns(headers);
+
+    if (columns.id === -1 || columns.quantity === -1) return;
+
+    for (let i = 1; i < values.length; i++) {
+      const row = values[i];
+      const stickerId = normalizeStickerId(row[columns.id]);
+      if (!stickerId) continue;
+
+      index[stickerId] = {
+        sheet,
+        sheetName,
+        row,
+        rowNumber: i + 1,
+        columns
+      };
+    }
+  });
+
+  return index;
+}
+
+function buildBatchSummary(results) {
+  return results.reduce((summary, item) => {
+    if (item.status === 'added') {
+      summary.added++;
+    } else if (item.status === 'incremented') {
+      summary.incremented++;
+    } else if (item.status === 'already_exists') {
+      summary.alreadyExists++;
+    } else if (item.status === 'not_found') {
+      summary.notFound++;
+    } else {
+      summary.errors++;
+    }
+
+    return summary;
+  }, {
+    added: 0,
+    incremented: 0,
+    alreadyExists: 0,
+    notFound: 0,
+    errors: 0
+  });
 }
 
 function findStickerRow(stickerId) {

@@ -1,0 +1,11 @@
+17-06-2026
+
+He encontrado los siguientes inconvenientes y errores en la app.
+
+1) Al cargar un cromo, ya sea nuevo a ya existente, el tiempo de carga es alto, hablamos de 10 u 11 segundos, que para algo tan insignificante como texto, es muchisimo tiempo, aqui hay que analizar que puede estar pasando y presentar una solución. Se que es un google sheet con Apps Script, pero ese Sheet funciona como una base de datos y la busqueda e inserción pienso qie debería ser fácil y muy rápido, no son imagenes.
+
+2) Cuando terminas de cargar una lista, ya sea escaneada o manual y girar el móvil, se borra la lista, esto no debería de pasar, tendría estar bloqueado en vertical y si mueves el móvil no se tiene qie borrar nada.
+
+3) Cuando escaneas, es díficil salirte de ese modo, pues el botón de cancelar esta muy abajo y queda solapado por el menú del móvil, ese menu es transparente y sirve para ir a home o como task manager, la solución sería poner el botón de cancelar 1 cm más arriba.,
+
+4) Cuando cargas una lista larga y falla un código de cromo, es decir, no lo consigue, ya sea error de escaneo o mala introducción manual, y "guardas la lista", sale el mensaje de dice que hubo un error, pero no puedes hacer scroll down en la lista que ha sido agregada, entonces no puedes visualmente ver ubicar cual es el codigo erroneo.
